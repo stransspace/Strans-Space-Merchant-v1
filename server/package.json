@@ -1,0 +1,27 @@
+{
+  "name": "pos-coffe-api",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch ./src/index.js",
+    "server": "node --watch ./src/index.js",
+    "start": "node ./src/index.js",
+    "db:init": "node ./scripts/init-db.js",
+    "db:seed": "node ./scripts/seed-orders.js",
+    "db:seed:variants": "node ./scripts/seed-variants.js",
+    "db:seed:orders": "node ./scripts/seed-orders-with-variants.js",
+    "db:seed:full": "node ./scripts/seed-dummy-full.js",
+    "db:seed:materials": "node ./scripts/seed-materials-and-links.js",
+    "test:ftp": "node ./scripts/test-ftp.js"
+  },
+  "dependencies": {
+    "basic-ftp": "^5.0.5",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "multer": "^2.0.2",
+    "mysql2": "^3.10.0",
+    "nodemailer": "^9.0.3"
+  }
+}

@@ -1,0 +1,1 @@
+# stranspace-android-pos

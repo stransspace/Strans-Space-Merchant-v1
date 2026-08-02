@@ -1,0 +1,80 @@
+name: Deploy merchant-dashboard (FTP)
+
+# Jalan otomatis setiap push ke main, atau manual dari tab Actions.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-merchant
+  cancel-in-progress: false
+
+env:
+  # FE dibangun untuk domain merchant. Backend & FE satu app (same-origin).
+  VITE_API_URL: https://posmerchant.stranspace.com
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Siapkan env build-time (tidak diupload)
+        run: |
+          echo "VITE_API_URL=${{ env.VITE_API_URL }}" > .env.production
+
+      - name: Install & build FE (-> server/public)
+        run: |
+          npm ci
+          npm run build
+
+      - name: Penanda restart Passenger
+        run: |
+          mkdir -p server/tmp
+          date -u +"restart %Y-%m-%dT%H:%M:%SZ ${{ github.sha }}" > server/tmp/restart.txt
+
+      # Upload isi server/ ke Application Root Passenger merchant via lftp (FTPS eksplisit).
+      # Akun FTP deploy terkunci (jailed) di app root merchant, jadi tujuan remote = '/'.
+      # server/public (FE) -> <approot>/public (disajikan src/index.js dari ../public).
+      # mirror -R hanya meng-upload yg beda/hilang; TANPA --delete (node_modules/.env/.htaccess
+      # di server tetap aman). File rahasia & dev/junk dikecualikan.
+      - name: Deploy via lftp (FTPS)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y lftp
+          lftp -c "
+            set ftp:ssl-force true;
+            set ftp:ssl-protect-data true;
+            set ssl:verify-certificate no;
+            set ftp:passive-mode true;
+            set net:max-retries 3;
+            set net:timeout 25;
+            set mirror:parallel-transfer-count 1;
+            open -u '${{ secrets.FTP_USERNAME }}','${{ secrets.FTP_PASSWORD }}' '${{ secrets.FTP_SERVER }}';
+            lcd server;
+            mirror --reverse --verbose --no-perms \
+              --exclude-glob .env \
+              --exclude .git/ \
+              --exclude node_modules/ \
+              --exclude-glob .htaccess \
+              --exclude-glob *.mjs \
+              --exclude-glob *.md \
+              --exclude-glob *.sh \
+              --exclude-glob *.ps1 \
+              --exclude scratch/ \
+              --exclude scripts/ \
+              --exclude-glob test-*.js \
+              --exclude-glob server-log.txt \
+              --exclude-glob show-reports.js \
+              --exclude-glob show-summary.js \
+              --exclude-glob init-db.js \
+              ./ / ;
+            bye
+          "
