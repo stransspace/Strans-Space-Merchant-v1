@@ -1,8 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Send, Copy, CheckCircle2, KeyRound } from 'lucide-react';
-import { getCashiers, createCashier, updateCashier, deleteCashier, generateTelegramLink, setNotifyLowStock } from '../lib/api';
-import ToggleSwitch from '../components/ToggleSwitch';
-import SpinnerButton from '../components/SpinnerButton';
+import { 
+  Plus, 
+  Edit3, 
+  Trash2, 
+  Send, 
+  Copy, 
+  CheckCircle2, 
+  KeyRound, 
+  Users, 
+  ShieldCheck, 
+  Mail, 
+  Check, 
+  MessageSquare,
+  Building2
+} from 'lucide-react';
+import { 
+  getCashiers, 
+  createCashier, 
+  updateCashier, 
+  deleteCashier, 
+  generateTelegramLink, 
+  setNotifyLowStock 
+} from '../lib/api';
+import { formatDate, cn } from '../lib/utils';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/card';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Select } from '../components/ui/select';
+import { Badge } from '../components/ui/badge';
+import { Switch } from '../components/ui/switch';
+import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogContent, DialogFooter } from '../components/ui/dialog';
 
 export default function StaffPage({ activeBranchId, session, setActionError, setSuccessMessage, confirmAction }) {
   const [cashiers, setCashiers] = useState([]);
@@ -17,9 +44,10 @@ export default function StaffPage({ activeBranchId, session, setActionError, set
     role: 'kasir',
     email: ''
   });
-  const [telegramLinkModal, setTelegramLinkModal] = useState(null); // { cashier, deepLink }
+
+  const [telegramLinkModal, setTelegramLinkModal] = useState(null);
   const [copySuccess, setCopySuccess] = useState(false);
-  const [resetPinTarget, setResetPinTarget] = useState(null); // cashier yang sedang direset PIN-nya
+  const [resetPinTarget, setResetPinTarget] = useState(null);
   const [resetPinForm, setResetPinForm] = useState({ pin: '', pin2: '' });
   const [resettingPin, setResettingPin] = useState(false);
 
@@ -57,7 +85,7 @@ export default function StaffPage({ activeBranchId, session, setActionError, set
     setCashierForm({
       name: cashier.name,
       username: cashier.username,
-      pin: '', // Kosongkan PIN, hanya diubah jika diisi
+      pin: '',
       role: cashier.role || 'kasir',
       email: cashier.email || ''
     });
@@ -81,10 +109,10 @@ export default function StaffPage({ activeBranchId, session, setActionError, set
 
       if (editingCashier) {
         await updateCashier(editingCashier.id, payload);
-        setSuccessMessage('Staf berhasil diperbarui.');
+        setSuccessMessage('Data staf berhasil diperbarui.');
       } else {
         if (!cashierForm.pin) {
-          throw new Error('PIN wajib diisi untuk akun kasir baru.');
+          throw new Error('PIN wajib diisi untuk akun staf baru.');
         }
         await createCashier({ ...payload, pin: cashierForm.pin });
         setSuccessMessage('Akun staf baru berhasil dibuat.');
@@ -98,12 +126,12 @@ export default function StaffPage({ activeBranchId, session, setActionError, set
     }
   };
 
-  const handleDeleteCashier = async (id) => {
-    if (!(await confirmAction('Hapus akun kasir/staf ini? Tindakan ini tidak dapat dibatalkan.', { title: 'Hapus Staf', confirmText: 'Ya, hapus' }))) return;
+  const handleDeleteCashier = async (id, name) => {
+    if (!(await confirmAction(`Hapus akun staf "${name}"? Tindakan ini tidak dapat dibatalkan.`, { title: 'Hapus Staf', confirmText: 'Ya, hapus' }))) return;
     setActionError('');
     try {
       await deleteCashier(id);
-      setSuccessMessage('Akun staf dihapus.');
+      setSuccessMessage('Akun staf berhasil dihapus.');
       loadCashiers();
     } catch (err) {
       setActionError(err.message);
@@ -121,12 +149,11 @@ export default function StaffPage({ activeBranchId, session, setActionError, set
     const p1 = String(resetPinForm.pin || '').trim();
     const p2 = String(resetPinForm.pin2 || '').trim();
     if (p1.length < 4) { setActionError('PIN baru minimal 4 digit.'); return; }
-    if (p1 !== p2) { setActionError('Konfirmasi PIN tidak sama.'); return; }
+    if (p1 !== p2) { setActionError('Konfirmasi PIN tidak cocok.'); return; }
 
     setActionError('');
     setResettingPin(true);
     try {
-      // Sertakan email existing: backend akan menimpa kolom email (null bila tak dikirim).
       await updateCashier(resetPinTarget.id, {
         name: resetPinTarget.name,
         username: resetPinTarget.username,
@@ -171,362 +198,307 @@ export default function StaffPage({ activeBranchId, session, setActionError, set
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 2000);
     } catch {
-      // Clipboard API tidak tersedia — abaikan, link tetap terlihat untuk disalin manual
+      /* ignore */
     }
   };
 
-  const closeTelegramLinkModal = () => {
-    setTelegramLinkModal(null);
-    setCopySuccess(false);
-    loadCashiers();
-  };
-
   return (
-    <div className="bg-white border border-slate-100 p-6 rounded-2xl space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 animate-in fade-in duration-200">
+      {/* Header */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="font-bold text-slate-900 text-base">Manajemen Staf Kasir</h3>
-          <p className="text-xs text-slate-600">Kelola akun kredensial kasir, pin kasir, dan peran tingkat akses staf di outlet.</p>
+          <h1 className="text-2xl font-black tracking-tight text-[var(--color-ink)]">
+            Manajemen Staf & Hak Akses
+          </h1>
+          <p className="text-xs text-[var(--color-slate-muted)] mt-0.5">
+            Kelola akun kasir, tingkat wewenang staf (Kasir / Manajer / Admin), dan notifikasi bot Telegram.
+          </p>
         </div>
-        <button 
+
+        <Button
           onClick={() => {
             if (activeBranchId === 'all') {
-              setActionError('Silakan pilih salah satu cabang spesifik terlebih dahulu untuk mendaftarkan staf baru.');
+              setActionError('Silakan pilih salah satu cabang spesifik untuk mendaftarkan staf baru.');
               return;
             }
             openAddCashier();
           }}
-          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-md cursor-pointer ${
-            activeBranchId === 'all'
-              ? 'bg-slate-100 text-slate-500 border border-slate-200/60 cursor-not-allowed'
-              : 'bg-sky-500 hover:bg-sky-600 text-white shadow-sky-500/10'
-          }`}
+          disabled={activeBranchId === 'all'}
+          className="shadow-md"
         >
-          <Plus size={14} />
-          <span>Tambah Staf</span>
-        </button>
+          <Plus className="h-4 w-4" />
+          <span>Tambah Staf Baru</span>
+        </Button>
       </div>
 
-      <div className="border border-slate-100 rounded-xl overflow-hidden overflow-x-auto">
-        <table className="w-full text-left text-xs">
-          <thead className="bg-slate-100 text-slate-700 font-bold">
-            <tr>
-              <th className="p-4">Nama Lengkap</th>
-              <th className="p-4">Username Login</th>
-              <th className="p-4">Email Google</th>
-              {activeBranchId === 'all' && <th className="p-4">Cabang</th>}
-              <th className="p-4">Peran Akses</th>
-              <th className="p-4">Notifikasi Stok</th>
-              <th className="p-4">Terdaftar Sejak</th>
-              <th className="p-4 text-center">Aksi</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 bg-slate-50/20">
-            {cashiers.map((c) => (
-              <tr key={c.id} className="hover:bg-slate-100/30 text-slate-800">
-                <td className="p-4 font-bold">{c.name}</td>
-                <td className="p-4 font-mono text-slate-600">@{c.username}</td>
-                <td className="p-4 text-slate-600">{c.email || '-'}</td>
-                {activeBranchId === 'all' && (
-                  <td className="p-4 font-semibold text-slate-600">
-                    {c.tenantName || 'Cabang Utama'}
-                  </td>
-                )}
-                <td className="p-4">
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase ${
-                    c.role === 'owner' ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400' :
-                    c.role === 'admin' ? 'bg-sky-500/10 border border-sky-500/20 text-sky-400' :
-                    c.role === 'manajer' ? 'bg-purple-500/10 border border-purple-500/20 text-purple-400' :
-                    'bg-slate-100 text-slate-600 border border-slate-200'
-                  }`}>
-                    {c.role || 'kasir'}
-                  </span>
-                </td>
-                <td className="p-4">
-                  <div className="flex items-center gap-3">
-                    <ToggleSwitch
-                      checked={!!c.notify_low_stock}
-                      onChange={() => handleToggleNotify(c)}
-                      ariaLabel={`Notifikasi stok menipis untuk ${c.name}`}
-                    />
-                    {c.telegram_chat_id ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase bg-emerald-500/10 border border-emerald-500/20 text-emerald-600">
-                        <CheckCircle2 size={11} />
-                        Terhubung
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() => handleConnectTelegram(c)}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase bg-slate-100 border border-slate-200 text-slate-600 hover:bg-sky-500/10 hover:border-sky-500/20 hover:text-sky-600 transition-colors cursor-pointer"
-                      >
-                        <Send size={11} />
-                        Hubungkan
-                      </button>
-                    )}
-                  </div>
-                </td>
-                <td className="p-4 text-slate-600">
-                  {c.createdAt ? new Date(c.createdAt).toLocaleDateString('id-ID', { dateStyle: 'medium' }) : '-'}
-                </td>
-                <td className="p-4 text-center">
-                  <div className="flex justify-center gap-3">
-                    <button
-                      onClick={() => openEditCashier(c)}
-                      className="text-slate-600 hover:text-sky-400 transition-colors cursor-pointer"
-                      title="Ubah akun"
-                    >
-                      <Edit size={14} />
-                    </button>
-                    <button
-                      onClick={() => openResetPin(c)}
-                      disabled={c.role === 'owner' && session.cashier.role !== 'owner'}
-                      className="text-slate-600 hover:text-amber-500 disabled:opacity-30 transition-colors cursor-pointer"
-                      title="Reset PIN akun ini"
-                    >
-                      <KeyRound size={14} />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteCashier(c.id)}
-                      disabled={c.role === 'owner' && session.cashier.role !== 'owner'}
-                      className="text-slate-600 hover:text-rose-400 disabled:opacity-30 transition-colors cursor-pointer"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {loading ? (
-              <tr><td colSpan={activeBranchId === 'all' ? 8 : 7} className="p-8 text-center text-slate-400">Memuat data…</td></tr>
-            ) : cashiers.length === 0 && (
-              <tr>
-                <td colSpan={activeBranchId === 'all' ? 8 : 7} className="p-8 text-center text-slate-500">
-                  Belum ada akun kasir terdaftar.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {/* Main Table Card */}
+      <Card className="overflow-hidden">
+        <CardHeader className="border-b border-[var(--color-hairline)] bg-[var(--color-snow)] px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Daftar Staf & Kasir Terdaftar</CardTitle>
+              <CardDescription>
+                {activeBranchId === 'all' ? 'Seluruh staf dari semua outlet.' : 'Staf yang bertugas di outlet aktif.'}
+              </CardDescription>
+            </div>
+            <Badge variant="brand">{cashiers.length} Akun</Badge>
+          </div>
+        </CardHeader>
 
-      {/* CASHIER MODAL (ADD / EDIT) */}
-      {showCashierModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="w-full max-w-md bg-white border border-slate-100 rounded-3xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-extrabold text-slate-900 text-base">
-                {editingCashier ? 'Ubah Akun Staf' : 'Daftarkan Staf Baru'}
-              </h3>
-              <button 
-                onClick={() => setShowCashierModal(false)}
-                className="text-slate-500 hover:text-slate-900 font-bold text-sm cursor-pointer"
-              >
-                ✕
-              </button>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="py-16 text-center text-xs text-[var(--color-slate-muted)] animate-pulse">
+              Memuat data akun staf...
+            </div>
+          ) : cashiers.length === 0 ? (
+            <div className="py-12 text-center text-xs text-[var(--color-slate-muted)]">
+              Belum ada staf terdaftar di cabang ini.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[var(--color-snow)] text-[var(--color-slate-muted)] font-semibold border-b border-[var(--color-hairline)]">
+                  <tr>
+                    <th className="px-6 py-3.5">Nama Lengkap</th>
+                    <th className="px-4 py-3.5">Username Login</th>
+                    <th className="px-4 py-3.5">Email</th>
+                    {activeBranchId === 'all' && <th className="px-4 py-3.5">Outlet Cabang</th>}
+                    <th className="px-4 py-3.5">Peran Akses</th>
+                    <th className="px-4 py-3.5">Notifikasi Telegram</th>
+                    <th className="px-6 py-3.5 text-right">Aksi</th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-[var(--color-hairline)]">
+                  {cashiers.map((c) => {
+                    const roleBadge = 
+                      c.role === 'owner' ? 'coral' :
+                      c.role === 'admin' ? 'brand' :
+                      c.role === 'manajer' ? 'warning' : 'secondary';
+
+                    return (
+                      <tr key={c.id} className="hover:bg-[var(--color-brand-50)]/40 transition-colors">
+                        <td className="px-6 py-3.5 font-bold text-[var(--color-ink)] flex items-center gap-2.5">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--color-brand-100)] text-[var(--color-brand-700)] font-bold shrink-0">
+                            {c.name?.charAt(0)?.toUpperCase() || 'S'}
+                          </div>
+                          <div>
+                            <div>{c.name}</div>
+                            <span className="text-[10px] text-[var(--color-slate-muted)] font-normal">ID: {c.id}</span>
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-3.5 font-mono text-[var(--color-slate-body)]">
+                          @{c.username}
+                        </td>
+
+                        <td className="px-4 py-3.5 text-[var(--color-slate-muted)]">
+                          {c.email || '-'}
+                        </td>
+
+                        {activeBranchId === 'all' && (
+                          <td className="px-4 py-3.5 font-semibold text-[var(--color-ink)]">
+                            {c.tenantName || 'Outlet Utama'}
+                          </td>
+                        )}
+
+                        <td className="px-4 py-3.5">
+                          <Badge variant={roleBadge} className="capitalize">
+                            {c.role || 'kasir'}
+                          </Badge>
+                        </td>
+
+                        <td className="px-4 py-3.5">
+                          <div className="flex items-center gap-2.5">
+                            <Switch
+                              checked={!!c.notify_low_stock}
+                              onChange={() => handleToggleNotify(c)}
+                            />
+
+                            {c.telegram_chat_id ? (
+                              <Badge variant="success" className="text-[10px]">
+                                <Check className="h-3 w-3" />
+                                <span>Terhubung</span>
+                              </Badge>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleConnectTelegram(c)}
+                                className="flex items-center gap-1 rounded-lg bg-sky-50 px-2 py-1 text-[10px] font-bold text-sky-700 hover:bg-sky-100 transition-colors"
+                              >
+                                <Send className="h-2.5 w-2.5" />
+                                <span>Hubungkan Bot</span>
+                              </button>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className="px-6 py-3.5 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => openResetPin(c)}
+                              title="Reset PIN"
+                              className="h-7 px-2 text-xs"
+                            >
+                              <KeyRound className="h-3 w-3" />
+                              <span>PIN</span>
+                            </Button>
+
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => openEditCashier(c)}
+                              className="h-7 px-2 text-xs"
+                            >
+                              <Edit3 className="h-3 w-3" />
+                            </Button>
+
+                            {c.role !== 'owner' && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCashier(c.id, c.name)}
+                                className="p-1.5 text-[var(--color-slate-muted)] hover:text-rose-600 rounded-lg hover:bg-rose-50"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* MODAL: Tambah/Edit Staf */}
+      <Dialog open={showCashierModal} onClose={() => setShowCashierModal(false)} maxWidth="max-w-md">
+        <DialogHeader onClose={() => setShowCashierModal(false)}>
+          <DialogTitle>{editingCashier ? 'Sunting Akun Staf' : 'Tambah Staf Kasir Baru'}</DialogTitle>
+          <DialogDescription>
+            Kredensial ini digunakan kasir untuk login dan membuka shift di mesin POS.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={saveCashier}>
+          <DialogContent className="space-y-3.5 pt-4">
+            <div>
+              <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">Nama Lengkap</label>
+              <Input required placeholder="Contoh: Budi Santoso" value={cashierForm.name} onChange={(e) => setCashierForm({ ...cashierForm, name: e.target.value })} />
             </div>
 
-            <form onSubmit={saveCashier} className="space-y-4 text-xs">
+            <div>
+              <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">Username Login</label>
+              <Input required placeholder="budi_kasir" value={cashierForm.username} onChange={(e) => setCashierForm({ ...cashierForm, username: e.target.value })} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[10px] uppercase font-bold text-slate-600 block mb-1">Nama Lengkap Staf</label>
-                <input 
-                  type="text" 
-                  required
-                  placeholder="Nama lengkap kasir"
-                  value={cashierForm.name}
-                  onChange={(e) => setCashierForm({ ...cashierForm, name: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:border-sky-500"
-                />
+                <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">Peran Akses</label>
+                <Select value={cashierForm.role} onChange={(e) => setCashierForm({ ...cashierForm, role: e.target.value })}>
+                  <option value="kasir">Kasir</option>
+                  <option value="manajer">Manajer</option>
+                  <option value="admin">Admin</option>
+                </Select>
               </div>
 
               <div>
-                <label className="text-[10px] uppercase font-bold text-slate-600 block mb-1">Username Login</label>
-                <input 
-                  type="text" 
-                  required
-                  placeholder="Username tanpa spasi (e.g. satrio)"
-                  value={cashierForm.username}
-                  onChange={(e) => setCashierForm({ ...cashierForm, username: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:border-sky-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-600 block mb-1">
-                  PIN Keamanan / Sandi {editingCashier && '(Biarkan kosong jika tidak diubah)'}
+                <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">
+                  {editingCashier ? 'PIN Baru (Opsional)' : 'PIN Kasir (min 4 digit)'}
                 </label>
-                <input 
-                  type="password" 
-                  required={!editingCashier}
-                  placeholder="Angka PIN atau Sandi kasir"
+                <Input
+                  type="password"
+                  placeholder={editingCashier ? 'Biarkan kosong jika tetap' : 'Contoh: 123456'}
                   value={cashierForm.pin}
                   onChange={(e) => setCashierForm({ ...cashierForm, pin: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:border-sky-500"
                 />
               </div>
-
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-600 block mb-1">Email Google (Untuk Login Google Owner)</label>
-                <input 
-                  type="email" 
-                  placeholder="Contoh: owner.name@gmail.com"
-                  value={cashierForm.email || ''}
-                  onChange={(e) => setCashierForm({ ...cashierForm, email: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:border-sky-500 mb-4"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-600 block mb-1">Hak Peran Akses</label>
-                <select 
-                  value={cashierForm.role}
-                  onChange={(e) => setCashierForm({ ...cashierForm, role: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:border-sky-500"
-                >
-                  <option value="kasir">Kasir (Staf Penjualan POS)</option>
-                  <option value="manajer">Manajer (Staf Operasional & Gudang)</option>
-                  <option value="admin">Administrator (Hak Penuh Menu & Staf)</option>
-                  {session.cashier.role === 'owner' && (
-                    <option value="owner">Pemilik Bisnis (Owner)</option>
-                  )}
-                </select>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-                <button 
-                  type="button" 
-                  onClick={() => setShowCashierModal(false)}
-                  className="px-4 py-2 border border-slate-100 text-slate-600 hover:text-slate-900 rounded-xl font-bold cursor-pointer"
-                >
-                  Batal
-                </button>
-                <SpinnerButton
-                  type="submit"
-                  loading={saving}
-                  loadingText="Menyimpan…"
-                  className="px-5 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-bold cursor-pointer"
-                >
-                  Simpan Perubahan
-                </SpinnerButton>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* RESET PIN MODAL */}
-      {resetPinTarget && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="w-full max-w-md bg-white border border-slate-100 rounded-3xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
-                <KeyRound size={16} className="text-amber-500" /> Reset PIN
-              </h3>
-              <button
-                onClick={() => setResetPinTarget(null)}
-                className="text-slate-500 hover:text-slate-900 font-bold text-sm cursor-pointer"
-              >
-                ✕
-              </button>
             </div>
 
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Atur PIN baru untuk <span className="font-bold text-slate-900">{resetPinTarget.name}</span> <span className="font-mono text-slate-500">@{resetPinTarget.username}</span>. PIN lama akan langsung tergantikan.
+            <div>
+              <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">Email Google (Opsional)</label>
+              <Input type="email" placeholder="email@gmail.com" value={cashierForm.email} onChange={(e) => setCashierForm({ ...cashierForm, email: e.target.value })} />
+            </div>
+          </DialogContent>
+
+          <DialogFooter>
+            <Button variant="outline" type="button" onClick={() => setShowCashierModal(false)} disabled={saving}>
+              Batal
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Menyimpan...' : editingCashier ? 'Simpan Perubahan' : 'Buat Akun Staf'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </Dialog>
+
+      {/* MODAL: Reset PIN */}
+      <Dialog open={!!resetPinTarget} onClose={() => setResetPinTarget(null)} maxWidth="max-w-sm">
+        <DialogHeader onClose={() => setResetPinTarget(null)}>
+          <DialogTitle>Reset PIN: {resetPinTarget?.name}</DialogTitle>
+          <DialogDescription>Masukkan PIN baru untuk akun staf ini.</DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={submitResetPin}>
+          <DialogContent className="space-y-3 pt-4">
+            <div>
+              <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">PIN Baru</label>
+              <Input type="password" required minLength={4} placeholder="Minimal 4 digit" value={resetPinForm.pin} onChange={(e) => setResetPinForm({ ...resetPinForm, pin: e.target.value })} />
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">Ulangi PIN Baru</label>
+              <Input type="password" required minLength={4} placeholder="Ketik ulang PIN" value={resetPinForm.pin2} onChange={(e) => setResetPinForm({ ...resetPinForm, pin2: e.target.value })} />
+            </div>
+          </DialogContent>
+
+          <DialogFooter>
+            <Button variant="outline" type="button" onClick={() => setResetPinTarget(null)} disabled={resettingPin}>
+              Batal
+            </Button>
+            <Button type="submit" disabled={resettingPin}>
+              {resettingPin ? 'Mereset...' : 'Simpan PIN Baru'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </Dialog>
+
+      {/* MODAL: Telegram Bot Connect */}
+      <Dialog open={!!telegramLinkModal} onClose={() => setTelegramLinkModal(null)} maxWidth="max-w-md">
+        <DialogHeader onClose={() => setTelegramLinkModal(null)}>
+          <DialogTitle>Hubungkan Bot Telegram</DialogTitle>
+          <DialogDescription>
+            Kirimkan tautan ini ke staf agar notifikasi stok bahan baku otomatis masuk ke Telegram pribadinya.
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogContent className="space-y-4 pt-4">
+          <div className="rounded-xl border-2 border-dashed border-[var(--color-brand-300)] bg-[var(--color-brand-50)] p-4 text-center">
+            <p className="text-xs text-[var(--color-slate-body)] break-all font-mono">
+              {telegramLinkModal?.deepLink}
             </p>
-
-            <form onSubmit={submitResetPin} className="space-y-4 text-xs">
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-600 block mb-1">PIN Baru</label>
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  autoComplete="new-password"
-                  required
-                  placeholder="Minimal 4 digit"
-                  value={resetPinForm.pin}
-                  onChange={(e) => setResetPinForm({ ...resetPinForm, pin: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:border-sky-400 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-600 block mb-1">Ulangi PIN Baru</label>
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  autoComplete="new-password"
-                  required
-                  placeholder="Ketik ulang PIN baru"
-                  value={resetPinForm.pin2}
-                  onChange={(e) => setResetPinForm({ ...resetPinForm, pin2: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:border-sky-400 focus:outline-none"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setResetPinTarget(null)}
-                  className="px-4 py-2 border border-slate-100 text-slate-600 hover:text-slate-900 rounded-xl font-bold cursor-pointer"
-                >
-                  Batal
-                </button>
-                <SpinnerButton
-                  type="submit"
-                  loading={resettingPin}
-                  loadingText="Mereset…"
-                  className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold cursor-pointer"
-                >
-                  Reset PIN
-                </SpinnerButton>
-              </div>
-            </form>
           </div>
-        </div>
-      )}
 
-      {/* TELEGRAM LINK MODAL */}
-      {telegramLinkModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="w-full max-w-md bg-white border border-slate-100 rounded-3xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-extrabold text-slate-900 text-base">Hubungkan Telegram</h3>
-              <button
-                onClick={closeTelegramLinkModal}
-                className="text-slate-500 hover:text-slate-900 font-bold text-sm cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
+          <Button
+            size="sm"
+            onClick={() => handleCopyLink(telegramLinkModal?.deepLink)}
+            className="w-full h-9 text-xs"
+          >
+            {copySuccess ? 'Tautan Berhasil Disalin!' : 'Salin Tautan Telegram'}
+          </Button>
+        </DialogContent>
 
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Kirim link ini ke <span className="font-bold text-slate-900">{telegramLinkModal.cashier.name}</span> agar dibuka dari HP mereka sendiri, lalu tekan <span className="font-semibold">Start</span> di Telegram. Jangan buka link ini dari akun Telegram Anda sendiri.
-            </p>
-
-            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
-              <input
-                readOnly
-                value={telegramLinkModal.deepLink}
-                onFocus={(e) => e.target.select()}
-                className="flex-1 bg-transparent text-xs text-slate-700 font-mono focus:outline-none min-w-0"
-              />
-              <button
-                onClick={() => handleCopyLink(telegramLinkModal.deepLink)}
-                className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-sky-500 hover:bg-sky-600 text-white cursor-pointer transition-colors"
-              >
-                {copySuccess ? <CheckCircle2 size={12} /> : <Copy size={12} />}
-                {copySuccess ? 'Tersalin' : 'Salin Link'}
-              </button>
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <button
-                onClick={closeTelegramLinkModal}
-                className="px-4 py-2 border border-slate-100 text-slate-600 hover:text-slate-900 rounded-xl font-bold text-xs cursor-pointer"
-              >
-                Selesai
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setTelegramLinkModal(null)}>
+            Tutup
+          </Button>
+        </DialogFooter>
+      </Dialog>
     </div>
   );
 }

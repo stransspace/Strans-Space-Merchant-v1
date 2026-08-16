@@ -1,8 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Edit, Trash2 } from 'lucide-react';
+import { 
+  Plus, 
+  Search, 
+  Edit3, 
+  Trash2, 
+  Coins, 
+  Calendar, 
+  Tag, 
+  TrendingDown,
+  Receipt
+} from 'lucide-react';
 import { getExpenses, createExpense, updateExpense, deleteExpense } from '../lib/api';
+import { formatRupiah, formatDate, cn } from '../lib/utils';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/card';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Select } from '../components/ui/select';
+import { Badge } from '../components/ui/badge';
+import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogContent, DialogFooter } from '../components/ui/dialog';
 import Pagination from '../components/Pagination';
-import SpinnerButton from '../components/SpinnerButton';
+
+const EXPENSE_CATEGORIES = ['Operasional', 'Bahan Baku & Dapur', 'Gaji / Upah', 'Utilitas (Listrik/Air/Internet)', 'Sewa & Tempat', 'Marketing & Iklan', 'Perbaikan & Maintenance', 'Lainnya'];
 
 export default function ExpensesPage({ activeBranchId, setActionError, setSuccessMessage, confirmAction }) {
   const [expenses, setExpenses] = useState([]);
@@ -98,7 +116,7 @@ export default function ExpensesPage({ activeBranchId, setActionError, setSucces
     }
   };
 
-  const filteredExpenses = expenses.filter(e => 
+  const filteredExpenses = expenses.filter(e =>
     (e.description || '').toLowerCase().includes(expensesSearch.toLowerCase()) ||
     (e.category || '').toLowerCase().includes(expensesSearch.toLowerCase())
   );
@@ -106,229 +124,222 @@ export default function ExpensesPage({ activeBranchId, setActionError, setSucces
   const startIndex = (expensesPage - 1) * ITEMS_PER_PAGE;
   const paginatedExpenses = filteredExpenses.slice(startIndex, startIndex + ITEMS_PER_PAGE);
 
+  const totalExpenseAmount = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
   return (
-    <div className="bg-white border border-slate-100 p-6 rounded-2xl space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 animate-in fade-in duration-200">
+      {/* Header */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="font-bold text-slate-900 text-base">Manajemen Pengeluaran & Biaya Operasional</h3>
-          <p className="text-xs text-slate-600">Catat dan pantau pengeluaran berkala outlet seperti sewa, listrik, air, gaji, perbaikan, dll.</p>
-        </div>
-        <button 
-          onClick={() => {
-            if (activeBranchId === 'all') {
-              setActionError('Silakan pilih salah satu cabang spesifik terlebih dahulu untuk mendaftarkan biaya pengeluaran baru.');
-              return;
-            }
-            openAddExpense();
-          }}
-          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-md cursor-pointer ${
-            activeBranchId === 'all'
-              ? 'bg-slate-100 text-slate-500 border border-slate-200/60 cursor-not-allowed'
-              : 'bg-sky-500 hover:bg-sky-600 text-white shadow-sky-500/10'
-          }`}
-        >
-          <Plus size={14} />
-          <span>Catat Pengeluaran</span>
-        </button>
-      </div>
-
-      {/* Expenses Stats Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-slate-50/40 border border-slate-100 p-4 rounded-xl">
-          <span className="text-[10px] uppercase font-bold text-slate-500">Total Pengeluaran Tercatat</span>
-          <p className="text-xl font-extrabold text-slate-900 mt-1">
-            Rp {expenses.reduce((sum, e) => sum + Number(e.amount), 0).toLocaleString('id-ID')}
+          <h1 className="text-2xl font-black tracking-tight text-[var(--color-ink)]">
+            Biaya & Pengeluaran Kas
+          </h1>
+          <p className="text-xs text-[var(--color-slate-muted)] mt-0.5">
+            Pencatatan kas keluar operasional untuk perhitungan akurat laba bersih pada laporan P&L.
           </p>
         </div>
-        <div className="bg-slate-50/40 border border-slate-100 p-4 rounded-xl">
-          <span className="text-[10px] uppercase font-bold text-slate-500">Transaksi Pengeluaran</span>
-          <p className="text-xl font-extrabold text-sky-400 mt-1">{expenses.length} Transaksi</p>
-        </div>
-        <div className="bg-slate-50/40 border border-slate-100 p-4 rounded-xl">
-          <span className="text-[10px] uppercase font-bold text-slate-500">Kategori Terbanyak</span>
-          <p className="text-xl font-extrabold text-purple-400 mt-1 truncate">
-            {expenses.length > 0 ? (
-              Object.entries(
-                expenses.reduce((acc, curr) => {
-                  acc[curr.category] = (acc[curr.category] || 0) + 1;
-                  return acc;
-                }, {})
-              ).sort((a, b) => b[1] - a[1])[0]?.[0] || '-'
-            ) : '-'}
-          </p>
-        </div>
+
+        <Button onClick={openAddExpense} className="shadow-md">
+          <Plus className="h-4 w-4" />
+          <span>Catat Kas Keluar</span>
+        </Button>
       </div>
 
-      <div className="flex items-center justify-between gap-4">
-        <div className="relative w-full max-w-xs">
-          <Search className="absolute left-3 top-2.5 text-slate-500" size={16} />
-          <input
-            type="text"
-            placeholder="Cari deskripsi atau kategori biaya..."
-            value={expensesSearch}
-            onChange={(e) => {
-              setExpensesSearch(e.target.value);
-              setExpensesPage(1);
-            }}
-            className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-900 focus:outline-none focus:border-sky-500 placeholder-slate-500"
-          />
-        </div>
+      {/* Mini Stats */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <Card className="p-4 bg-gradient-to-br from-white to-rose-50/30 border-[var(--color-hairline)]">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-[var(--color-slate-muted)]">Total Pengeluaran Dicatat</span>
+            <TrendingDown className="h-4 w-4 text-rose-500" />
+          </div>
+          <div className="mt-2 text-2xl font-black text-rose-600">
+            {formatRupiah(totalExpenseAmount)}
+          </div>
+        </Card>
+
+        <Card className="p-4 bg-gradient-to-br from-white to-[var(--color-brand-50)]/30 border-[var(--color-hairline)]">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-[var(--color-slate-muted)]">Jumlah Transaksi Biaya</span>
+            <Receipt className="h-4 w-4 text-[var(--color-brand-600)]" />
+          </div>
+          <div className="mt-2 text-2xl font-extrabold text-[var(--color-ink)]">
+            {expenses.length} <span className="text-xs font-normal text-[var(--color-slate-muted)]">catatan</span>
+          </div>
+        </Card>
+
+        <Card className="p-4 bg-gradient-to-br from-white to-[var(--color-brand-50)]/30 border-[var(--color-hairline)]">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-[var(--color-slate-muted)]">Cakupan Outlet</span>
+            <Tag className="h-4 w-4 text-purple-600" />
+          </div>
+          <div className="mt-2 text-2xl font-extrabold text-[var(--color-ink)]">
+            {activeBranchId === 'all' ? 'Semua Cabang' : 'Outlet Aktif'}
+          </div>
+        </Card>
       </div>
 
-      <div className="border border-slate-100 rounded-xl overflow-hidden overflow-x-auto">
-        <table className="w-full text-left text-xs">
-          <thead className="bg-slate-100 text-slate-700 font-bold">
-            <tr>
-              <th className="p-4">Tanggal Catat</th>
-              {activeBranchId === 'all' && <th className="p-4">Cabang</th>}
-              <th className="p-4">Kategori Biaya</th>
-              <th className="p-4">Keterangan / Keperluan</th>
-              <th className="p-4 text-right">Nominal Pengeluaran</th>
-              <th className="p-4 text-center">Aksi</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 bg-slate-50/20">
-            {paginatedExpenses.map((e) => (
-              <tr key={e.id} className="hover:bg-slate-100/30 text-slate-800">
-                <td className="p-4 font-mono text-slate-600">
-                  {new Date(e.date || e.created_at).toLocaleDateString('id-ID', { dateStyle: 'medium' })}
-                </td>
-                {activeBranchId === 'all' && (
-                  <td className="p-4 font-semibold text-slate-600 truncate max-w-[120px]">
-                    {e.tenantName || 'Cabang Utama'}
-                  </td>
-                )}
-                <td className="p-4">
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                    e.category === 'Gaji Karyawan' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                    e.category === 'Sewa Tempat' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' :
-                    e.category === 'Bahan Baku' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                    e.category === 'Peralatan & Perbaikan' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
-                    'bg-slate-100 text-slate-600 border border-slate-200'
-                  }`}>
-                    {e.category}
-                  </span>
-                </td>
-                <td className="p-4 text-slate-700 font-medium">{e.description}</td>
-                <td className="p-4 text-right font-extrabold text-slate-900">
-                  Rp {Number(e.amount).toLocaleString('id-ID')}
-                </td>
-                <td className="p-4 text-center">
-                  <div className="flex justify-center gap-3">
-                    <button 
-                      onClick={() => openEditExpense(e)} 
-                      className="text-slate-600 hover:text-sky-400 transition-colors cursor-pointer"
-                    >
-                      <Edit size={14} />
-                    </button>
-                    <button 
-                      onClick={() => handleDeleteExpense(e.id)} 
-                      className="text-slate-600 hover:text-rose-400 transition-colors cursor-pointer"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {loading ? (
-              <tr><td colSpan={activeBranchId === 'all' ? 6 : 5} className="p-8 text-center text-slate-400">Memuat data…</td></tr>
-            ) : filteredExpenses.length === 0 && (
-              <tr>
-                <td colSpan={activeBranchId === 'all' ? 6 : 5} className="p-8 text-center text-slate-500">
-                  Tidak ditemukan catatan pengeluaran operasional yang cocok.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <Pagination 
-        currentPage={expensesPage} 
-        totalItems={filteredExpenses.length} 
-        itemsPerPage={ITEMS_PER_PAGE} 
-        onPageChange={setExpensesPage} 
-      />
-
-      {/* EXPENSE MODAL (ADD / EDIT) */}
-      {showExpenseModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="w-full max-w-md bg-white border border-slate-100 rounded-3xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-extrabold text-slate-900 text-base">
-                {editingExpense ? 'Ubah Catatan Pengeluaran' : 'Catat Pengeluaran Baru'}
-              </h3>
-              <button 
-                onClick={() => setShowExpenseModal(false)}
-                className="text-slate-500 hover:text-slate-900 font-bold text-sm cursor-pointer"
-              >
-                ✕
-              </button>
+      {/* Main Table */}
+      <Card className="overflow-hidden">
+        <CardHeader className="border-b border-[var(--color-hairline)] bg-[var(--color-snow)] px-6 py-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle>Riwayat Pengeluaran Operasional</CardTitle>
+              <CardDescription>Daftar seluruh kas keluar yang mempengaruhi neraca laba rugi.</CardDescription>
             </div>
 
-            <form onSubmit={saveExpense} className="space-y-4 text-xs">
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-600 block mb-1">Kategori Pengeluaran</label>
-                <select 
-                  value={expenseForm.category}
-                  onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:border-sky-500"
-                >
-                  <option value="Operasional">Operasional</option>
-                  <option value="Gaji Karyawan">Gaji Karyawan</option>
-                  <option value="Sewa Tempat">Sewa Tempat</option>
-                  <option value="Peralatan & Perbaikan">Peralatan & Perbaikan</option>
-                  <option value="Bahan Baku">Bahan Baku</option>
-                  <option value="Lain-lain">Lain-lain</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-600 block mb-1">Keterangan / Keperluan</label>
-                <input 
-                  type="text" 
-                  required
-                  placeholder="Contoh: Bayar Listrik Juni, Pembelian Blender Baru"
-                  value={expenseForm.description}
-                  onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:border-sky-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-600 block mb-1">Nominal Biaya (Rp)</label>
-                <input 
-                  type="number" 
-                  required
-                  placeholder="Contoh: 150000"
-                  value={expenseForm.amount}
-                  onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:border-sky-500 font-bold"
-                />
-              </div>
-
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-                <button 
-                  type="button" 
-                  onClick={() => setShowExpenseModal(false)}
-                  className="px-4 py-2 border border-slate-100 text-slate-600 hover:text-slate-900 rounded-xl font-bold cursor-pointer"
-                >
-                  Batal
-                </button>
-                <SpinnerButton
-                  type="submit"
-                  loading={saving}
-                  loadingText="Menyimpan…"
-                  className="px-5 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-bold cursor-pointer"
-                >
-                  Simpan
-                </SpinnerButton>
-              </div>
-            </form>
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--color-slate-muted)] pointer-events-none" />
+              <Input
+                placeholder="Cari keterangan biaya..."
+                value={expensesSearch}
+                onChange={(e) => {
+                  setExpensesSearch(e.target.value);
+                  setExpensesPage(1);
+                }}
+                className="pl-9 h-9 text-xs"
+              />
+            </div>
           </div>
+        </CardHeader>
+
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="py-16 text-center text-xs text-[var(--color-slate-muted)] animate-pulse">
+              Memuat data pengeluaran kas...
+            </div>
+          ) : paginatedExpenses.length === 0 ? (
+            <div className="py-12 text-center text-xs text-[var(--color-slate-muted)]">
+              Belum ada catatan pengeluaran kas.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[var(--color-snow)] text-[var(--color-slate-muted)] font-semibold border-b border-[var(--color-hairline)]">
+                  <tr>
+                    <th className="px-6 py-3.5">Tanggal</th>
+                    <th className="px-4 py-3.5">Kategori Biaya</th>
+                    <th className="px-4 py-3.5">Keterangan / Keperluan</th>
+                    {activeBranchId === 'all' && <th className="px-4 py-3.5">Cabang</th>}
+                    <th className="px-4 py-3.5 text-right">Nominal Pengeluaran</th>
+                    <th className="px-6 py-3.5 text-right">Aksi</th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-[var(--color-hairline)]">
+                  {paginatedExpenses.map((exp) => (
+                    <tr key={exp.id} className="hover:bg-[var(--color-brand-50)]/40 transition-colors">
+                      <td className="px-6 py-4 font-bold text-[var(--color-ink)] flex items-center gap-2">
+                        <Calendar className="h-3.5 w-3.5 text-[var(--color-brand-600)] shrink-0" />
+                        <span>{formatDate(exp.date || exp.created_at)}</span>
+                      </td>
+
+                      <td className="px-4 py-4">
+                        <Badge variant="secondary">{exp.category || 'Operasional'}</Badge>
+                      </td>
+
+                      <td className="px-4 py-4 text-[var(--color-slate-body)] font-medium">
+                        {exp.description}
+                      </td>
+
+                      {activeBranchId === 'all' && (
+                        <td className="px-4 py-4 font-semibold text-[var(--color-ink)]">
+                          {exp.tenantName || 'Outlet Utama'}
+                        </td>
+                      )}
+
+                      <td className="px-4 py-4 text-right font-extrabold text-sm text-rose-600">
+                        {formatRupiah(exp.amount || 0)}
+                      </td>
+
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button size="sm" variant="outline" onClick={() => openEditExpense(exp)} className="h-7 px-2 text-xs">
+                            <Edit3 className="h-3 w-3" />
+                          </Button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteExpense(exp.id)}
+                            className="p-1.5 text-[var(--color-slate-muted)] hover:text-rose-600 rounded-lg hover:bg-rose-50"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Pagination */}
+      {filteredExpenses.length > ITEMS_PER_PAGE && (
+        <div className="flex justify-center pt-2">
+          <Pagination
+            currentPage={expensesPage}
+            totalItems={filteredExpenses.length}
+            itemsPerPage={ITEMS_PER_PAGE}
+            onPageChange={setExpensesPage}
+          />
         </div>
       )}
+
+      {/* MODAL: Tambah/Edit Pengeluaran */}
+      <Dialog open={showExpenseModal} onClose={() => setShowExpenseModal(false)} maxWidth="max-w-md">
+        <DialogHeader onClose={() => setShowExpenseModal(false)}>
+          <DialogTitle>{editingExpense ? 'Sunting Pengeluaran' : 'Catat Pengeluaran Kas Baru'}</DialogTitle>
+          <DialogDescription>Pengeluaran ini akan langsung dicatat pada neraca pembukuan cabang.</DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={saveExpense}>
+          <DialogContent className="space-y-4 pt-4">
+            <div>
+              <label className="text-xs font-bold text-[var(--color-ink)] block mb-1.5">Kategori Biaya</label>
+              <Select
+                value={expenseForm.category}
+                onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}
+              >
+                {EXPENSE_CATEGORIES.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </Select>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-[var(--color-ink)] block mb-1.5">Nominal Kas Keluar (Rp)</label>
+              <Input
+                type="number"
+                min="0"
+                required
+                placeholder="Contoh: 150000"
+                value={expenseForm.amount}
+                onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-[var(--color-ink)] block mb-1.5">Keterangan / Keperluan</label>
+              <Input
+                required
+                placeholder="Contoh: Beli es batu kristal 5 kantong, perbaikan kran air"
+                value={expenseForm.description}
+                onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
+              />
+            </div>
+          </DialogContent>
+
+          <DialogFooter>
+            <Button variant="outline" type="button" onClick={() => setShowExpenseModal(false)} disabled={saving}>
+              Batal
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Menyimpan...' : editingExpense ? 'Simpan Perubahan' : 'Catat Pengeluaran'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </Dialog>
     </div>
   );
 }

@@ -1,34 +1,44 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Wallet, RefreshCw, Clock, CheckCircle2, ArrowUpRight, ArrowDownRight, Building2, Info,
-  TrendingUp, Receipt, Coins, Hash, Landmark, Plus, Trash2, X, ArrowDownToLine, Send,
+  Wallet, 
+  RefreshCw, 
+  Clock, 
+  CheckCircle2, 
+  ArrowUpRight, 
+  ArrowDownRight, 
+  Building2, 
+  Info,
+  TrendingUp, 
+  Receipt, 
+  Coins, 
+  Hash, 
+  Landmark, 
+  Plus, 
+  Trash2, 
+  X, 
+  ArrowDownToLine, 
+  Send,
+  CreditCard
 } from 'lucide-react';
 import { getWallet, getBankAccounts, addBankAccount, deleteBankAccount, requestPayout, getPayouts } from '../lib/api';
-
-const rupiah = (n) =>
-  new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(Number(n) || 0);
+import { formatRupiah, formatDateTime, formatDate, cn } from '../lib/utils';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/card';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Select } from '../components/ui/select';
+import { Badge } from '../components/ui/badge';
+import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogContent, DialogFooter } from '../components/ui/dialog';
 
 const TYPE_LABEL = {
-  sale: 'Penjualan', platform_fee: 'Biaya platform', gateway_fee: 'Biaya gateway',
-  payout: 'Penarikan', payout_reversal: 'Pengembalian penarikan', refund: 'Refund', adjustment: 'Penyesuaian',
-};
-const PERIODS = [
-  { key: 'today', label: 'Hari ini' },
-  { key: 'month', label: 'Bulan ini' },
-  { key: 'all', label: 'Semua' },
-];
-const PAYOUT_STATUS = {
-  pending: { label: 'Menunggu diproses', cls: 'bg-amber-100 text-amber-700' },
-  completed: { label: 'Selesai', cls: 'bg-emerald-100 text-emerald-700' },
-  rejected: { label: 'Ditolak', cls: 'bg-rose-100 text-rose-700' },
+  sale: 'Penjualan', platform_fee: 'Biaya Platform', gateway_fee: 'Biaya Gateway',
+  payout: 'Penarikan Dana', payout_reversal: 'Pengembalian Penarikan', refund: 'Refund', adjustment: 'Penyesuaian',
 };
 
-const fmtDate = (v) => {
-  if (!v) return '-';
-  try { return new Date(v).toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
-  catch { return String(v); }
-};
-const maskAcc = (n) => { const s = String(n || ''); return s.length > 4 ? '••••' + s.slice(-4) : s; };
+const PERIODS = [
+  { key: 'today', label: 'Hari Ini' },
+  { key: 'month', label: 'Bulan Ini' },
+  { key: 'all', label: 'Semua Waktu' },
+];
 
 export default function WalletPage({ setActionError, setSuccessMessage, confirmAction }) {
   const [loading, setLoading] = useState(true);
@@ -44,7 +54,7 @@ export default function WalletPage({ setActionError, setSuccessMessage, confirmA
   const [submitting, setSubmitting] = useState(false);
 
   const [showAddBank, setShowAddBank] = useState(false);
-  const [bankForm, setBankForm] = useState({ bankName: '', accountNumber: '', accountHolder: '', isDefault: true });
+  const [bankForm, setBankForm] = useState({ bankName: 'BCA', accountNumber: '', accountHolder: '', isDefault: true });
   const [addingBank, setAddingBank] = useState(false);
 
   const load = async (opts = {}) => {
@@ -53,28 +63,28 @@ export default function WalletPage({ setActionError, setSuccessMessage, confirmA
       const res = await getWallet({ period: opts.period ?? period, branch: opts.branch ?? branch });
       setData(res?.data || null);
     } catch (err) {
-      setActionError?.(err.message || 'Gagal memuat dompet.');
+      setActionError?.(err.message || 'Gagal memuat saldo dompet.');
     } finally {
       setLoading(false);
     }
   };
+
   const loadExtras = async () => {
     try {
       const [b, p] = await Promise.all([getBankAccounts(), getPayouts()]);
       setBanks(b?.data || []);
       setPayouts(p?.data || []);
-    } catch { /* diam; ditangani di aksi */ }
+    } catch {
+      /* ignore */
+    }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [period, branch]);
-  useEffect(() => { loadExtras(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { load(); }, [period, branch]);
+  useEffect(() => { loadExtras(); }, []);
 
   const company = data?.company || { available: 0, pending: 0, total: 0 };
   const branches = data?.branches || [];
-  const summary = data?.summary || { grossSales: 0, platformFees: 0, net: 0, trxCount: 0 };
   const entries = data?.entries || [];
-  const periodLabel = PERIODS.find((p) => p.key === period)?.label || '';
-  const selBranch = branches.find((b) => String(b.tenantId) === String(wForm.tenantId));
 
   const openWithdraw = () => {
     if (banks.length === 0) { setShowAddBank(true); return; }
@@ -92,7 +102,7 @@ export default function WalletPage({ setActionError, setSuccessMessage, confirmA
     try {
       const res = await requestPayout({ tenantId: Number(wForm.tenantId), amount, bankAccountId: Number(wForm.bankAccountId), note: wForm.note });
       setShowWithdraw(false);
-      setSuccessMessage?.(res?.message || 'Penarikan diajukan.');
+      setSuccessMessage?.(res?.message || 'Penarikan berhasil diajukan.');
       await Promise.all([load(), loadExtras()]);
     } catch (err) {
       setActionError?.(err.message || 'Gagal mengajukan penarikan.');
@@ -103,29 +113,29 @@ export default function WalletPage({ setActionError, setSuccessMessage, confirmA
 
   const submitAddBank = async (e) => {
     e.preventDefault();
-    if (!bankForm.bankName.trim() || !bankForm.accountNumber.trim() || !bankForm.accountHolder.trim()) {
-      setActionError?.('Nama bank, nomor rekening, dan nama pemilik wajib diisi.'); return;
+    if (!bankForm.bankName || !bankForm.accountNumber || !bankForm.accountHolder) {
+      setActionError?.('Semua kolom data rekening bank wajib diisi.');
+      return;
     }
     setAddingBank(true);
     try {
-      await addBankAccount(bankForm);
+      await addBankAccount({ ...bankForm, isDefault: !!bankForm.isDefault });
       setShowAddBank(false);
-      setBankForm({ bankName: '', accountNumber: '', accountHolder: '', isDefault: true });
-      setSuccessMessage?.('Rekening bank ditambahkan.');
+      setBankForm({ bankName: 'BCA', accountNumber: '', accountHolder: '', isDefault: true });
+      setSuccessMessage?.('Rekening penarikan berhasil ditambahkan.');
       await loadExtras();
     } catch (err) {
-      setActionError?.(err.message || 'Gagal menambah rekening.');
+      setActionError?.(err.message || 'Gagal menambahkan rekening.');
     } finally {
       setAddingBank(false);
     }
   };
 
-  const removeBank = async (b) => {
-    const ok = await confirmAction?.(`Hapus rekening ${b.bankName} ${maskAcc(b.accountNumber)}?`, { title: 'Hapus Rekening', confirmText: 'Ya, hapus', danger: true });
-    if (!ok) return;
+  const handleDeleteBank = async (id, name) => {
+    if (!(await confirmAction(`Hapus rekening "${name}"?`, { title: 'Hapus Rekening', confirmText: 'Ya, hapus' }))) return;
     try {
-      await deleteBankAccount(b.id);
-      setSuccessMessage?.('Rekening dihapus.');
+      await deleteBankAccount(id);
+      setSuccessMessage?.('Rekening berhasil dihapus.');
       await loadExtras();
     } catch (err) {
       setActionError?.(err.message || 'Gagal menghapus rekening.');
@@ -133,330 +143,313 @@ export default function WalletPage({ setActionError, setSuccessMessage, confirmA
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-200">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-extrabold text-slate-900 flex items-center gap-2">
-            <Wallet size={22} className="text-sky-600" /> Dompet Digital
-          </h2>
-          <p className="text-sm text-slate-500">Saldo hasil pembayaran via payment gateway (QRIS/VA), seluruh cabang perusahaan.</p>
+          <h1 className="text-2xl font-black tracking-tight text-[var(--color-ink)]">
+            Dompet & Settlement Saldo
+          </h1>
+          <p className="text-xs text-[var(--color-slate-muted)] mt-0.5">
+            Kelola saldo QRIS / transfer digital, penarikan dana ke rekening bank, dan histori mutasi settlement.
+          </p>
         </div>
+
         <div className="flex items-center gap-2">
-          <button onClick={openWithdraw}
-            className="flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-sky-500/20 transition hover:bg-sky-700">
-            <ArrowDownToLine size={15} /> Tarik Saldo
-          </button>
-          <button onClick={() => { load(); loadExtras(); }} disabled={loading}
-            className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">
-            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> Perbarui
-          </button>
+          <Button onClick={openWithdraw} className="shadow-md">
+            <ArrowDownToLine className="h-4 w-4" />
+            <span>Tarik Saldo</span>
+          </Button>
+
+          <Button variant="outline" onClick={() => { load(); loadExtras(); }} className="h-10 w-10 p-0">
+            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+          </Button>
         </div>
       </div>
 
-      {/* Saldo kumulatif perusahaan */}
+      {/* Saldo Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="rounded-2xl bg-gradient-to-br from-sky-600 to-blue-600 p-5 text-white shadow-lg shadow-sky-500/20">
-          <p className="text-xs font-bold uppercase tracking-wider text-white/80">Total Saldo Perusahaan</p>
-          <p className="mt-2 text-3xl font-black">{rupiah(company.total)}</p>
-          <p className="mt-1 text-xs text-white/80">Tersedia + tertahan, semua cabang</p>
-        </div>
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
-          <p className="text-xs font-bold uppercase tracking-wider text-emerald-600 flex items-center gap-1.5"><CheckCircle2 size={14} /> Tersedia</p>
-          <p className="mt-2 text-2xl font-black text-emerald-700">{rupiah(company.available)}</p>
-          <p className="mt-1 text-xs text-emerald-600/80">Sudah settle, bisa ditarik</p>
-        </div>
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-          <p className="text-xs font-bold uppercase tracking-wider text-amber-600 flex items-center gap-1.5"><Clock size={14} /> Tertahan (T+1)</p>
-          <p className="mt-2 text-2xl font-black text-amber-700">{rupiah(company.pending)}</p>
-          <p className="mt-1 text-xs text-amber-600/80">Menunggu settlement gateway</p>
-        </div>
-      </div>
-
-      {/* Filter periode + cabang */}
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3">
-        <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1">
-          {PERIODS.map((p) => (
-            <button key={p.key} onClick={() => setPeriod(p.key)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${period === p.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <select value={branch} onChange={(e) => setBranch(e.target.value)}
-          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-sky-500">
-          <option value="all">Semua cabang</option>
-          {branches.map((b) => (<option key={b.tenantId} value={b.tenantId}>{b.branchName}</option>))}
-        </select>
-        <span className="text-xs text-slate-400">Ringkasan &amp; riwayat mengikuti filter ini</span>
-      </div>
-
-      {/* Ringkasan arus */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5"><Receipt size={14} className="text-sky-500" /> Pemasukan Kotor</p>
-          <p className="mt-2 text-xl font-black text-slate-900">{rupiah(summary.grossSales)}</p>
-          <p className="mt-1 text-[11px] text-slate-400">{periodLabel}</p>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5"><Coins size={14} className="text-rose-500" /> Biaya Platform</p>
-          <p className="mt-2 text-xl font-black text-rose-600">−{rupiah(summary.platformFees)}</p>
-          <p className="mt-1 text-[11px] text-slate-400">{periodLabel}</p>
-        </div>
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-          <p className="text-xs font-bold uppercase tracking-wider text-emerald-600 flex items-center gap-1.5"><TrendingUp size={14} /> Pemasukan Bersih</p>
-          <p className="mt-2 text-xl font-black text-emerald-700">{rupiah(summary.net)}</p>
-          <p className="mt-1 text-[11px] text-emerald-600/70">{periodLabel}</p>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5"><Hash size={14} className="text-slate-400" /> Jumlah Transaksi</p>
-          <p className="mt-2 text-xl font-black text-slate-900">{summary.trxCount}</p>
-          <p className="mt-1 text-[11px] text-slate-400">{periodLabel}</p>
-        </div>
-      </div>
-
-      {/* Rekening bank */}
-      <div>
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-700 flex items-center gap-1.5"><Landmark size={15} className="text-slate-400" /> Rekening Bank Tujuan</h3>
-          <button onClick={() => setShowAddBank(true)} className="flex items-center gap-1 text-xs font-bold text-sky-600 hover:text-sky-700"><Plus size={14} /> Tambah</button>
-        </div>
-        {banks.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
-            Belum ada rekening. Tambahkan rekening untuk bisa menarik saldo.
+        <Card className="p-5 bg-gradient-to-br from-white to-[var(--color-brand-50)]/60 border-[var(--color-hairline)]">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-[var(--color-slate-muted)]">Saldo Siap Ditarik</span>
+            <Wallet className="h-5 w-5 text-[var(--color-brand-600)]" />
           </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {banks.map((b) => (
-              <div key={b.id} className="flex items-start justify-between rounded-2xl border border-slate-200 bg-white p-4">
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-slate-900">{b.bankName} {Number(b.isDefault) === 1 && <span className="ml-1 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold text-sky-600">Utama</span>}</p>
-                  <p className="mt-0.5 font-mono text-sm text-slate-700">{maskAcc(b.accountNumber)}</p>
-                  <p className="text-xs text-slate-500">a.n. {b.accountHolder}</p>
-                </div>
-                <button onClick={() => removeBank(b)} className="p-1.5 text-slate-400 hover:text-rose-600" title="Hapus"><Trash2 size={15} /></button>
-              </div>
-            ))}
+          <div className="mt-2 text-2xl font-black text-[var(--color-brand-800)]">
+            {formatRupiah(company.available || 0)}
           </div>
-        )}
-      </div>
+        </Card>
 
-      {/* Riwayat penarikan */}
-      <div>
-        <h3 className="mb-3 text-sm font-bold text-slate-700">Riwayat Penarikan</h3>
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wider text-slate-500">
-                <th className="px-4 py-3 font-bold">Waktu</th>
-                <th className="px-4 py-3 font-bold">Cabang</th>
-                <th className="px-4 py-3 font-bold">Tujuan</th>
-                <th className="px-4 py-3 font-bold text-right">Nominal</th>
-                <th className="px-4 py-3 font-bold">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payouts.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-500">Belum ada penarikan.</td></tr>
-              ) : (
-                payouts.map((p) => {
-                  const st = PAYOUT_STATUS[p.status] || { label: p.status, cls: 'bg-slate-100 text-slate-600' };
-                  return (
-                    <tr key={p.id} className="border-b border-slate-100 last:border-0">
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600">{fmtDate(p.createdAt)}</td>
-                      <td className="px-4 py-3 text-slate-700">{p.branchName || '-'}</td>
-                      <td className="px-4 py-3 text-slate-700">{p.bankName} <span className="font-mono text-xs text-slate-400">{maskAcc(p.accountNumber)}</span></td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right font-bold text-slate-900">{rupiah(p.amount)}</td>
-                      <td className="px-4 py-3"><span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold ${st.cls}`}>{st.label}</span></td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Catatan */}
-      <div className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
-        <Info size={15} className="mt-0.5 shrink-0 text-slate-400" />
-        <p>
-          Dana masuk otomatis saat pembayaran gateway lunas, dikurangi biaya platform per transaksi. Saldo <b>tertahan</b> jadi <b>tersedia</b> setelah settlement <b>T+1</b>.
-          Penarikan mengurangi saldo tersedia langsung (direservasi), lalu diproses & ditransfer manual oleh admin. Bila ditolak, dana dikembalikan otomatis.
-        </p>
-      </div>
-
-      {/* Saldo per cabang */}
-      <div>
-        <h3 className="mb-3 text-sm font-bold text-slate-700">Saldo per Cabang</h3>
-        {loading && !data ? (
-          <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">Memuat…</div>
-        ) : branches.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">Belum ada cabang.</div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {branches.map((b) => (
-              <div key={b.tenantId} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-center gap-2 text-slate-900">
-                  <Building2 size={15} className="text-slate-400" />
-                  <p className="truncate text-sm font-bold">{b.branchName}</p>
-                </div>
-                <p className="mt-2 text-xl font-black text-slate-900">{rupiah(b.available + b.pending)}</p>
-                <div className="mt-2 flex items-center justify-between text-xs">
-                  <span className="font-semibold text-emerald-600">Tersedia {rupiah(b.available)}</span>
-                  <span className="font-semibold text-amber-600">Tertahan {rupiah(b.pending)}</span>
-                </div>
-              </div>
-            ))}
+        <Card className="p-5 bg-gradient-to-br from-white to-amber-50/30 border-[var(--color-hairline)]">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-[var(--color-slate-muted)]">Settlement Pending</span>
+            <Clock className="h-5 w-5 text-amber-500" />
           </div>
-        )}
+          <div className="mt-2 text-2xl font-black text-amber-600">
+            {formatRupiah(company.pending || 0)}
+          </div>
+        </Card>
+
+        <Card className="p-5 bg-gradient-to-br from-white to-[var(--color-brand-50)]/40 border-[var(--color-hairline)]">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-[var(--color-slate-muted)]">Total Akumulasi Saldo</span>
+            <Coins className="h-5 w-5 text-purple-600" />
+          </div>
+          <div className="mt-2 text-2xl font-black text-[var(--color-ink)]">
+            {formatRupiah(company.total || 0)}
+          </div>
+        </Card>
       </div>
 
-      {/* Riwayat entri ledger */}
-      <div>
-        <h3 className="mb-3 text-sm font-bold text-slate-700">Riwayat Transaksi Dompet <span className="font-normal text-slate-400">· {periodLabel}</span></h3>
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wider text-slate-500">
-                <th className="px-4 py-3 font-bold">Waktu</th>
-                <th className="px-4 py-3 font-bold">Cabang</th>
-                <th className="px-4 py-3 font-bold">Jenis</th>
-                <th className="px-4 py-3 font-bold text-right">Nominal</th>
-                <th className="px-4 py-3 font-bold">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-500">Belum ada transaksi dompet untuk filter ini.</td></tr>
-              ) : (
-                entries.map((e) => {
-                  const credit = e.direction === 'credit';
-                  const pending = Number(e.isPending) === 1;
-                  return (
-                    <tr key={e.id} className="border-b border-slate-100 last:border-0">
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600">{fmtDate(e.createdAt)}</td>
-                      <td className="px-4 py-3 text-slate-700">{e.branchName || '-'}</td>
-                      <td className="px-4 py-3">
-                        <span className="text-slate-800">{TYPE_LABEL[e.type] || e.type}</span>
-                        {e.orderId ? <span className="ml-1 text-xs text-slate-400">#{e.orderId}</span> : null}
-                      </td>
-                      <td className={`whitespace-nowrap px-4 py-3 text-right font-bold ${credit ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        <span className="inline-flex items-center gap-1">
-                          {credit ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
-                          {credit ? '+' : '−'}{rupiah(e.amount)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {pending ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700"><Clock size={11} /> Tertahan</span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700"><CheckCircle2 size={11} /> Tersedia</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Modal Tarik Saldo */}
-      {showWithdraw && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm" onClick={() => !submitting && setShowWithdraw(false)}>
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <h3 className="font-extrabold text-slate-900 flex items-center gap-2"><ArrowDownToLine size={18} className="text-sky-600" /> Tarik Saldo</h3>
-              <button onClick={() => !submitting && setShowWithdraw(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+      {/* Rekening Bank Card */}
+      <Card className="overflow-hidden">
+        <CardHeader className="border-b border-[var(--color-hairline)] bg-[var(--color-snow)] px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Rekening Bank Penarikan</CardTitle>
+              <CardDescription>Rekening tujuan pencairan hasil penjualan non-tunai kasir.</CardDescription>
             </div>
-            <form onSubmit={submitWithdraw} className="space-y-4 px-6 py-5">
-              <div>
-                <label className="mb-1.5 block text-xs font-bold text-slate-700">Cabang (sumber saldo)</label>
-                <select value={wForm.tenantId} onChange={(e) => setWForm((f) => ({ ...f, tenantId: e.target.value }))} required
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-sky-500">
-                  <option value="">Pilih cabang</option>
-                  {branches.map((b) => (<option key={b.tenantId} value={b.tenantId}>{b.branchName} — tersedia {rupiah(b.available)}</option>))}
-                </select>
-                {selBranch && <p className="mt-1 text-[11px] text-slate-400">Saldo tersedia cabang ini: <b className="text-emerald-600">{rupiah(selBranch.available)}</b></p>}
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-bold text-slate-700">Nominal (Rp)</label>
-                <input type="number" min={10000} step={1000} required placeholder="Minimal 10.000" value={wForm.amount}
-                  onChange={(e) => setWForm((f) => ({ ...f, amount: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-sky-500" />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-bold text-slate-700">Rekening tujuan</label>
-                <select value={wForm.bankAccountId} onChange={(e) => setWForm((f) => ({ ...f, bankAccountId: e.target.value }))} required
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-sky-500">
-                  <option value="">Pilih rekening</option>
-                  {banks.map((b) => (<option key={b.id} value={b.id}>{b.bankName} {maskAcc(b.accountNumber)} — {b.accountHolder}</option>))}
-                </select>
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-bold text-slate-700">Catatan (opsional)</label>
-                <input type="text" value={wForm.note} onChange={(e) => setWForm((f) => ({ ...f, note: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-sky-500" />
-              </div>
-              <div className="flex gap-2 pt-1">
-                <button type="button" onClick={() => setShowWithdraw(false)} disabled={submitting}
-                  className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Batal</button>
-                <button type="submit" disabled={submitting}
-                  className="flex-1 rounded-xl bg-sky-600 px-4 py-3 text-sm font-bold text-white hover:bg-sky-700 disabled:opacity-50 flex items-center justify-center gap-2">
-                  {submitting ? <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <><Send size={15} /> Ajukan</>}
-                </button>
-              </div>
-              <p className="text-[11px] text-slate-400">Dana direservasi saat diajukan. Transfer diproses manual oleh admin. Ditolak → dana kembali otomatis.</p>
-            </form>
+            <Button size="sm" variant="secondary" onClick={() => setShowAddBank(true)} className="h-8 text-xs">
+              <Plus className="h-3.5 w-3.5" />
+              <span>Tambah Rekening</span>
+            </Button>
           </div>
-        </div>
-      )}
+        </CardHeader>
 
-      {/* Modal Tambah Rekening */}
-      {showAddBank && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm" onClick={() => !addingBank && setShowAddBank(false)}>
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <h3 className="font-extrabold text-slate-900 flex items-center gap-2"><Landmark size={18} className="text-sky-600" /> Tambah Rekening Bank</h3>
-              <button onClick={() => !addingBank && setShowAddBank(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+        <CardContent className="p-6">
+          {banks.length === 0 ? (
+            <div className="py-8 text-center text-xs text-[var(--color-slate-muted)]">
+              Belum ada rekening bank yang didaftarkan.
             </div>
-            <form onSubmit={submitAddBank} className="space-y-4 px-6 py-5">
-              <div>
-                <label className="mb-1.5 block text-xs font-bold text-slate-700">Nama Bank</label>
-                <input type="text" required placeholder="Contoh: BCA" value={bankForm.bankName}
-                  onChange={(e) => setBankForm((f) => ({ ...f, bankName: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-sky-500" />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-bold text-slate-700">Nomor Rekening</label>
-                <input type="text" inputMode="numeric" required placeholder="6–20 digit" value={bankForm.accountNumber}
-                  onChange={(e) => setBankForm((f) => ({ ...f, accountNumber: e.target.value.replace(/[^0-9]/g, '') }))}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-mono outline-none focus:border-sky-500" />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-bold text-slate-700">Nama Pemilik Rekening</label>
-                <input type="text" required placeholder="Sesuai buku tabungan" value={bankForm.accountHolder}
-                  onChange={(e) => setBankForm((f) => ({ ...f, accountHolder: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-sky-500" />
-              </div>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" checked={bankForm.isDefault} onChange={(e) => setBankForm((f) => ({ ...f, isDefault: e.target.checked }))} />
-                Jadikan rekening utama
-              </label>
-              <div className="flex gap-2 pt-1">
-                <button type="button" onClick={() => setShowAddBank(false)} disabled={addingBank}
-                  className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Batal</button>
-                <button type="submit" disabled={addingBank}
-                  className="flex-1 rounded-xl bg-sky-600 px-4 py-3 text-sm font-bold text-white hover:bg-sky-700 disabled:opacity-50 flex items-center justify-center gap-2">
-                  {addingBank ? <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" /> : 'Simpan'}
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {banks.map((b) => (
+                <div
+                  key={b.id}
+                  className="rounded-2xl border border-[var(--color-hairline)] bg-[var(--color-snow)] p-4 flex flex-col justify-between space-y-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Landmark className="h-4 w-4 text-[var(--color-brand-600)]" />
+                      <span className="font-bold text-xs text-[var(--color-ink)]">{b.bank_name || b.bankName}</span>
+                    </div>
+                    {Number(b.is_default || b.isDefault) === 1 && (
+                      <Badge variant="brand" className="text-[9px]">Utama</Badge>
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="font-mono font-bold text-sm text-[var(--color-ink)]">
+                      {b.account_number || b.accountNumber}
+                    </div>
+                    <div className="text-[11px] text-[var(--color-slate-muted)] mt-0.5">
+                      a/n {b.account_holder || b.accountHolder}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-1 border-t border-[var(--color-hairline)]">
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteBank(b.id, b.account_holder || b.accountHolder)}
+                      className="text-rose-500 hover:text-rose-700 text-xs font-semibold flex items-center gap-1"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>Hapus</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Mutasi Ledger Table */}
+      <Card className="overflow-hidden">
+        <CardHeader className="border-b border-[var(--color-hairline)] bg-[var(--color-snow)] px-6 py-4">
+          <div className="flex items-center justify-between">
+            <CardTitle>Histori Mutasi Dompet</CardTitle>
+            <div className="flex rounded-xl bg-[var(--color-brand-50)] p-1 border border-[var(--color-hairline)]">
+              {PERIODS.map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => setPeriod(p.key)}
+                  className={cn(
+                    'rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all',
+                    period === p.key
+                      ? 'bg-white text-[var(--color-brand-800)] shadow-xs'
+                      : 'text-[var(--color-slate-muted)] hover:text-[var(--color-ink)]'
+                  )}
+                >
+                  {p.label}
                 </button>
-              </div>
-            </form>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        </CardHeader>
+
+        <CardContent className="p-0">
+          {entries.length === 0 ? (
+            <div className="py-12 text-center text-xs text-[var(--color-slate-muted)]">
+              Belum ada mutasi saldo pada periode ini.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[var(--color-snow)] text-[var(--color-slate-muted)] font-semibold border-b border-[var(--color-hairline)]">
+                  <tr>
+                    <th className="px-6 py-3.5">Waktu</th>
+                    <th className="px-4 py-3.5">Tipe Transaksi</th>
+                    <th className="px-4 py-3.5">Keterangan</th>
+                    <th className="px-6 py-3.5 text-right">Nominal</th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-[var(--color-hairline)]">
+                  {entries.map((item, idx) => {
+                    const isCredit = Number(item.amount || 0) > 0;
+
+                    return (
+                      <tr key={idx} className="hover:bg-[var(--color-brand-50)]/40 transition-colors">
+                        <td className="px-6 py-3.5 font-mono text-[11px] text-[var(--color-slate-muted)]">
+                          {formatDateTime(item.created_at || item.createdAt)}
+                        </td>
+
+                        <td className="px-4 py-3.5">
+                          <Badge variant={isCredit ? 'success' : 'danger'}>
+                            {TYPE_LABEL[item.type] || item.type}
+                          </Badge>
+                        </td>
+
+                        <td className="px-4 py-3.5 text-[var(--color-slate-body)] font-medium">
+                          {item.description || item.note || '-'}
+                        </td>
+
+                        <td className={cn('px-6 py-3.5 text-right font-black text-sm', isCredit ? 'text-emerald-700' : 'text-rose-600')}>
+                          {isCredit ? `+ ${formatRupiah(item.amount)}` : `- ${formatRupiah(Math.abs(item.amount))}`}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* MODAL: Tambah Rekening */}
+      <Dialog open={showAddBank} onClose={() => setShowAddBank(false)} maxWidth="max-w-md">
+        <DialogHeader onClose={() => setShowAddBank(false)}>
+          <DialogTitle>Tambah Rekening Bank</DialogTitle>
+          <DialogDescription>Masukkan detail rekening bank penarikan saldo.</DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={submitAddBank}>
+          <DialogContent className="space-y-3.5 pt-4">
+            <div>
+              <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">Nama Bank</label>
+              <Select
+                value={bankForm.bankName}
+                onChange={(e) => setBankForm({ ...bankForm, bankName: e.target.value })}
+              >
+                <option value="BCA">Bank Central Asia (BCA)</option>
+                <option value="Mandiri">Bank Mandiri</option>
+                <option value="BRI">Bank Rakyat Indonesia (BRI)</option>
+                <option value="BNI">Bank Negara Indonesia (BNI)</option>
+                <option value="BSI">Bank Syariah Indonesia (BSI)</option>
+                <option value="CIMB">CIMB Niaga</option>
+                <option value="Jago">Bank Jago</option>
+              </Select>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">Nomor Rekening</label>
+              <Input
+                required
+                placeholder="Contoh: 1234567890"
+                value={bankForm.accountNumber}
+                onChange={(e) => setBankForm({ ...bankForm, accountNumber: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">Nama Pemilik Rekening</label>
+              <Input
+                required
+                placeholder="Sesuai buku tabungan"
+                value={bankForm.accountHolder}
+                onChange={(e) => setBankForm({ ...bankForm, accountHolder: e.target.value })}
+              />
+            </div>
+          </DialogContent>
+
+          <DialogFooter>
+            <Button variant="outline" type="button" onClick={() => setShowAddBank(false)} disabled={addingBank}>
+              Batal
+            </Button>
+            <Button type="submit" disabled={addingBank}>
+              {addingBank ? 'Menyimpan...' : 'Simpan Rekening'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </Dialog>
+
+      {/* MODAL: Tarik Saldo (Payout) */}
+      <Dialog open={showWithdraw} onClose={() => setShowWithdraw(false)} maxWidth="max-w-md">
+        <DialogHeader onClose={() => setShowWithdraw(false)}>
+          <DialogTitle>Tarik Saldo ke Rekening Bank</DialogTitle>
+          <DialogDescription>Dana akan ditransfer otomatis ke rekening pilihan Anda.</DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={submitWithdraw}>
+          <DialogContent className="space-y-3.5 pt-4">
+            <div>
+              <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">Rekening Tujuan</label>
+              <Select
+                value={wForm.bankAccountId}
+                onChange={(e) => setWForm({ ...wForm, bankAccountId: e.target.value })}
+              >
+                {banks.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.bank_name || b.bankName} - {b.account_number || b.accountNumber} ({b.account_holder || b.accountHolder})
+                  </option>
+                ))}
+              </Select>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">Nominal Penarikan (Rp)</label>
+              <Input
+                type="number"
+                min="10000"
+                required
+                placeholder="Minimal Rp 10.000"
+                value={wForm.amount}
+                onChange={(e) => setWForm({ ...wForm, amount: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">Catatan (Opsional)</label>
+              <Input
+                placeholder="Penarikan mingguan"
+                value={wForm.note}
+                onChange={(e) => setWForm({ ...wForm, note: e.target.value })}
+              />
+            </div>
+          </DialogContent>
+
+          <DialogFooter>
+            <Button variant="outline" type="button" onClick={() => setShowWithdraw(false)} disabled={submitting}>
+              Batal
+            </Button>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? 'Memproses...' : 'Ajukan Penarikan'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </Dialog>
     </div>
   );
 }

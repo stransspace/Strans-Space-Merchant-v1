@@ -1,378 +1,469 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Edit, Trash2, Coffee, Layers, ShoppingBasket } from 'lucide-react';
-import { getProducts, createProduct, updateProduct, deleteProduct } from '../lib/api';
+import { 
+  Plus, 
+  Search, 
+  Edit3, 
+  Trash2, 
+  Coffee, 
+  Layers, 
+  ShoppingBag, 
+  LayoutGrid, 
+  List, 
+  Tag, 
+  Sparkles,
+  TrendingUp,
+  Percent,
+  CheckCircle2
+} from 'lucide-react';
+import { getProducts, createProduct, updateProduct, deleteProduct, getMaterials } from '../lib/api';
+import { formatRupiah, formatNumber, cn } from '../lib/utils';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/card';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Badge } from '../components/ui/badge';
+import { ProductModal } from '../components/modals/ProductModal';
 import Pagination from '../components/Pagination';
-import SpinnerButton from '../components/SpinnerButton';
 
 export default function ProductsPage({ activeBranchId, setActionError, setSuccessMessage, confirmAction }) {
   const [products, setProducts] = useState([]);
+  const [materials, setMaterials] = useState([]);
   const [productsSearch, setProductsSearch] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
   const [productsPage, setProductsPage] = useState(1);
   const [showProductModal, setShowProductModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [productForm, setProductForm] = useState({
-    id: '',
-    name: '',
-    price: '',
-    costPrice: '',
-    category: 'Kopi',
-    tag: '',
-    imageUrl: '',
-    discountPrice: ''
-  });
 
-  const ITEMS_PER_PAGE = 10;
+  const ITEMS_PER_PAGE = 12;
 
-  const loadProducts = async () => {
+  const loadData = async () => {
     setLoading(true);
     try {
-      const data = await getProducts();
-      setProducts(Array.isArray(data) ? data : []);
+      const [prodsData, matsData] = await Promise.all([
+        getProducts().catch(() => []),
+        getMaterials().catch(() => [])
+      ]);
+      setProducts(Array.isArray(prodsData) ? prodsData : []);
+      setMaterials(Array.isArray(matsData) ? matsData : []);
     } catch (err) {
-      setActionError('Gagal memuat produk: ' + err.message);
+      setActionError('Gagal memuat data produk: ' + err.message);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadProducts();
+    loadData();
   }, [activeBranchId]);
+
+  const categories = ['all', ...Array.from(new Set(products.map(p => p.category).filter(Boolean)))];
+
+  const filteredProducts = products.filter(p => {
+    const matchSearch = (
+      (p.name || '').toLowerCase().includes(productsSearch.toLowerCase()) ||
+      (p.id || '').toLowerCase().includes(productsSearch.toLowerCase()) ||
+      (p.category || '').toLowerCase().includes(productsSearch.toLowerCase()) ||
+      (p.tag || '').toLowerCase().includes(productsSearch.toLowerCase())
+    );
+    const matchCategory = selectedCategory === 'all' || p.category === selectedCategory;
+    return matchSearch && matchCategory;
+  });
+
+  const startIndex = (productsPage - 1) * ITEMS_PER_PAGE;
+  const paginatedProducts = filteredProducts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
 
   const openAddProduct = () => {
     setEditingProduct(null);
-    setProductForm({
-      id: '',
-      name: '',
-      price: '',
-      costPrice: '',
-      category: 'Kopi',
-      tag: '',
-      imageUrl: '',
-      discountPrice: ''
-    });
     setShowProductModal(true);
   };
 
   const openEditProduct = (prod) => {
     setEditingProduct(prod);
-    setProductForm({
-      id: prod.id,
-      name: prod.name,
-      price: prod.price || '',
-      costPrice: prod.costPrice || '',
-      category: prod.category || 'Kopi',
-      tag: prod.tag || '',
-      imageUrl: prod.imageUrl || '',
-      discountPrice: prod.discountPrice || ''
-    });
     setShowProductModal(true);
   };
 
-  const saveProduct = async (e) => {
-    e.preventDefault();
-    setActionError('');
+  const handleSaveProduct = async (payload) => {
     setSaving(true);
+    setActionError('');
     try {
-      const payload = {
-        id: productForm.id || `item-${Date.now()}`,
-        name: productForm.name,
-        price: Number(productForm.price),
-        costPrice: productForm.costPrice !== '' ? Number(productForm.costPrice) : null,
-        category: productForm.category,
-        tag: productForm.tag || null,
-        imageUrl: productForm.imageUrl || null,
-        discountPrice: productForm.discountPrice !== '' ? Number(productForm.discountPrice) : null
-      };
-
       if (editingProduct) {
         await updateProduct(editingProduct.id, payload);
-        setSuccessMessage('Produk berhasil diperbarui.');
+        setSuccessMessage('Menu berhasil diperbarui.');
       } else {
         await createProduct(payload);
-        setSuccessMessage('Produk baru berhasil ditambahkan.');
+        setSuccessMessage('Menu baru berhasil ditambahkan.');
       }
       setShowProductModal(false);
-      loadProducts();
+      loadData();
     } catch (err) {
-      setActionError(err.message);
+      setActionError(err.message || 'Gagal menyimpan menu');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDeleteProduct = async (id) => {
-    if (!(await confirmAction('Apakah Anda yakin ingin menghapus/mengarsipkan menu ini?', { title: 'Arsipkan Menu', confirmText: 'Ya, arsipkan' }))) return;
+  const handleDeleteProduct = async (id, name) => {
+    if (!(await confirmAction(`Apakah Anda yakin ingin menghapus menu "${name}"?`, { title: 'Hapus Menu', confirmText: 'Ya, hapus' }))) return;
     setActionError('');
     try {
       await deleteProduct(id);
-      setSuccessMessage('Produk diarsipkan.');
-      loadProducts();
+      setSuccessMessage('Menu berhasil dihapus.');
+      loadData();
     } catch (err) {
-      setActionError(err.message);
+      setActionError(err.message || 'Gagal menghapus menu.');
     }
   };
 
-  const filteredProducts = products.filter(p => 
-    p.name.toLowerCase().includes(productsSearch.toLowerCase()) ||
-    p.id.toLowerCase().includes(productsSearch.toLowerCase()) ||
-    p.category.toLowerCase().includes(productsSearch.toLowerCase())
-  );
-
-  const startIndex = (productsPage - 1) * ITEMS_PER_PAGE;
-  const paginatedProducts = filteredProducts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  // Metrics summary
+  const totalItems = products.length;
+  const avgPrice = totalItems > 0 ? Math.round(products.reduce((acc, p) => acc + (Number(p.price) || 0), 0) / totalItems) : 0;
+  const withHppCount = products.filter(p => p.costPrice != null || (Array.isArray(p.materials) && p.materials.length > 0)).length;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      
-      {/* Product List */}
-      <div className="lg:col-span-2 bg-white border border-slate-100 p-6 rounded-2xl space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="font-bold text-slate-900 text-base">Daftar Menu Outlet</h3>
-            <p className="text-xs text-slate-600">Kelola katalog produk, harga, dan ketersediaan menu di kasir.</p>
-          </div>
-          <button 
-            onClick={openAddProduct}
-            className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-sky-500/10 cursor-pointer"
-          >
-            <Plus size={14} />
-            <span>Tambah Menu</span>
-          </button>
+    <div className="space-y-6 animate-in fade-in duration-200">
+      {/* Page Header */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-black tracking-tight text-[var(--color-ink)]">
+            Katalog Menu & Produk
+          </h1>
+          <p className="text-xs text-[var(--color-slate-muted)] mt-0.5">
+            Kelola daftar menu jual, harga, varian, dan keterhubungan resep bahan baku ke kasir.
+          </p>
         </div>
-        <div className="flex items-center justify-between gap-4">
-          <div className="relative w-full max-w-xs">
-            <Search className="absolute left-3 top-2.5 text-slate-500" size={16} />
-            <input
-              type="text"
-              placeholder="Cari nama menu atau kategori..."
+
+        <Button onClick={openAddProduct} className="shadow-md">
+          <Plus className="h-4 w-4" />
+          <span>Tambah Menu Baru</span>
+        </Button>
+      </div>
+
+      {/* Mini Stats Bar */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <Card className="p-4 bg-gradient-to-br from-white to-[var(--color-brand-50)]/40 border-[var(--color-hairline)]">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-[var(--color-slate-muted)]">Total Menu Terdaftar</span>
+            <ShoppingBag className="h-4 w-4 text-[var(--color-brand-600)]" />
+          </div>
+          <div className="mt-2 text-2xl font-extrabold text-[var(--color-ink)]">
+            {totalItems} <span className="text-xs font-normal text-[var(--color-slate-muted)]">item</span>
+          </div>
+        </Card>
+
+        <Card className="p-4 bg-gradient-to-br from-white to-[var(--color-brand-50)]/40 border-[var(--color-hairline)]">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-[var(--color-slate-muted)]">Rata-Rata Harga Jual</span>
+            <TrendingUp className="h-4 w-4 text-purple-600" />
+          </div>
+          <div className="mt-2 text-2xl font-extrabold text-[var(--color-ink)]">
+            {formatRupiah(avgPrice)}
+          </div>
+        </Card>
+
+        <Card className="p-4 bg-gradient-to-br from-white to-[var(--color-brand-50)]/40 border-[var(--color-hairline)]">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-[var(--color-slate-muted)]">Menu Terhubung Resep/HPP</span>
+            <Layers className="h-4 w-4 text-emerald-600" />
+          </div>
+          <div className="mt-2 text-2xl font-extrabold text-[var(--color-ink)]">
+            {withHppCount} / {totalItems} <span className="text-xs font-normal text-[var(--color-slate-muted)]">menu</span>
+          </div>
+        </Card>
+      </div>
+
+      {/* Filter & View Controls */}
+      <Card className="p-4 space-y-3">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          {/* Search bar */}
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--color-slate-muted)] pointer-events-none" />
+            <Input
+              placeholder="Cari nama menu, tag, SKU, atau kategori..."
               value={productsSearch}
               onChange={(e) => {
                 setProductsSearch(e.target.value);
                 setProductsPage(1);
               }}
-              className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-900 focus:outline-none focus:border-sky-500 placeholder-slate-500"
+              className="pl-10 h-9.5 text-xs"
             />
           </div>
-        </div>
 
-        <div className="border border-slate-100 rounded-xl overflow-hidden overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-100 text-slate-700 font-bold">
-              <tr>
-                <th className="p-4">ID/Kode</th>
-                <th className="p-4">Nama Menu</th>
-                <th className="p-4">Kategori</th>
-                <th className="p-4">HPP (Cost)</th>
-                <th className="p-4">Harga Jual</th>
-                <th className="p-4 text-center">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-slate-50/20">
-              {paginatedProducts.map((p) => (
-                <tr key={p.id} className="hover:bg-slate-100/30 text-slate-800">
-                  <td className="p-4 font-mono text-slate-600">{p.id}</td>
-                  <td className="p-4 font-bold flex items-center gap-2">
-                    <Coffee size={14} className="text-sky-400 shrink-0" />
-                    <span className="truncate max-w-[150px]">{p.name}</span>
-                  </td>
-                  <td className="p-4 capitalize">{p.category}</td>
-                  <td className="p-4">Rp {p.costPrice ? Number(p.costPrice).toLocaleString('id-ID') : '0'}</td>
-                  <td className="p-4 font-bold text-sky-400">Rp {p.price.toLocaleString('id-ID')}</td>
-                  <td className="p-4 text-center">
-                    <div className="flex justify-center gap-3">
-                      <button 
-                        onClick={() => openEditProduct(p)} 
-                        className="text-slate-600 hover:text-sky-400 transition-colors cursor-pointer"
-                      >
-                        <Edit size={14} />
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteProduct(p.id)} 
-                        className="text-slate-600 hover:text-rose-400 transition-colors cursor-pointer"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {loading ? (
-                <tr><td colSpan="6" className="p-8 text-center text-slate-400">Memuat data…</td></tr>
-              ) : filteredProducts.length === 0 && (
-                <tr>
-                  <td colSpan="6" className="p-8 text-center text-slate-500">
-                    Tidak ada menu produk yang cocok dengan pencarian Anda.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        
-        <Pagination 
-          currentPage={productsPage} 
-          totalItems={filteredProducts.length} 
-          itemsPerPage={ITEMS_PER_PAGE} 
-          onPageChange={setProductsPage} 
-        />
-      </div>
-
-      {/* Product Info Board */}
-      <div className="bg-white border border-slate-100 p-6 rounded-2xl h-fit space-y-4">
-        <h3 className="font-bold text-slate-900 text-base">Ketentuan Katalog Menu</h3>
-        <div className="space-y-3 text-xs text-slate-600">
-          <div className="p-4 bg-slate-50/40 border border-slate-100 rounded-xl space-y-2">
-            <p className="font-bold text-slate-900 flex items-center gap-1.5 text-sky-400">
-              <Layers size={14} />
-              <span>Struktur Lisensi Menu</span>
-            </p>
-            <p>Jumlah menu item yang dapat didaftarkan terikat pada batas paket langganan Anda:</p>
-            <ul className="list-disc pl-4 space-y-1 mt-1 font-mono text-[10px]">
-              <li>Free Plan: Maks 20 menu</li>
-              <li>Standard Plan: Maks 100 menu</li>
-              <li>Premium Plan: Tanpa batas</li>
-            </ul>
-          </div>
-          
-          <div className="p-4 bg-slate-50/40 border border-slate-100 rounded-xl space-y-2">
-            <p className="font-bold text-slate-900 flex items-center gap-1.5 text-purple-400">
-              <ShoppingBasket size={14} />
-              <span>HPP & Margin Keuntungan</span>
-            </p>
-            <p>Mengisi Harga Pokok Penjualan (HPP) sangat disarankan untuk menghasilkan analisis laba-rugi bersih yang akurat pada laporan keuangan merchant.</p>
-          </div>
-        </div>
-      </div>
-
-      {/* PRODUCT MODAL (ADD / EDIT) */}
-      {showProductModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="w-full max-w-lg bg-white border border-slate-100 rounded-3xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-extrabold text-slate-900 text-base">
-                {editingProduct ? 'Ubah Rincian Menu' : 'Tambah Produk Baru'}
-              </h3>
-              <button 
-                onClick={() => setShowProductModal(false)}
-                className="text-slate-500 hover:text-slate-900 font-bold text-sm cursor-pointer"
+          {/* View mode toggle */}
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-xl bg-[var(--color-snow)] p-1 border border-[var(--color-hairline)]">
+              <button
+                type="button"
+                onClick={() => setViewMode('grid')}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all',
+                  viewMode === 'grid'
+                    ? 'bg-white text-[var(--color-brand-800)] shadow-2xs'
+                    : 'text-[var(--color-slate-muted)] hover:text-[var(--color-ink)]'
+                )}
               >
-                ✕
+                <LayoutGrid className="h-3.5 w-3.5" />
+                <span>Grid</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all',
+                  viewMode === 'table'
+                    ? 'bg-white text-[var(--color-brand-800)] shadow-2xs'
+                    : 'text-[var(--color-slate-muted)] hover:text-[var(--color-ink)]'
+                )}
+              >
+                <List className="h-3.5 w-3.5" />
+                <span>Tabel</span>
               </button>
             </div>
-
-            <form onSubmit={saveProduct} className="space-y-4 text-xs">
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-600 block mb-1">Kode / ID Produk</label>
-                <input 
-                  type="text" 
-                  required
-                  disabled={!!editingProduct}
-                  placeholder="Contoh: cf-kopi-susu"
-                  value={productForm.id}
-                  onChange={(e) => setProductForm({ ...productForm, id: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-100 disabled:opacity-50 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:border-sky-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-600 block mb-1">Nama Menu</label>
-                <input 
-                  type="text" 
-                  required
-                  placeholder="Nama Minuman / Makanan"
-                  value={productForm.name}
-                  onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:border-sky-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-600 block mb-1">HPP / Cost Price (Rupiah)</label>
-                  <input 
-                    type="number" 
-                    placeholder="Harga beli / Modal"
-                    value={productForm.costPrice}
-                    onChange={(e) => setProductForm({ ...productForm, costPrice: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:border-sky-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-600 block mb-1">Harga Jual (Rupiah)</label>
-                  <input 
-                    type="number" 
-                    required
-                    placeholder="Harga Jual Retail"
-                    value={productForm.price}
-                    onChange={(e) => setProductForm({ ...productForm, price: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:border-sky-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-600 block mb-1">Kategori</label>
-                  <select 
-                    value={productForm.category}
-                    onChange={(e) => setProductForm({ ...productForm, category: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:border-sky-500"
-                  >
-                    <option value="Kopi">Kopi</option>
-                    <option value="Non Kopi">Non Kopi</option>
-                    <option value="Pastry">Pastry</option>
-                    <option value="Cake">Cake</option>
-                    <option value="Sandwich">Sandwich</option>
-                    <option value="Manual Brew">Manual Brew</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-600 block mb-1">Tag Menu (Opsional)</label>
-                  <input 
-                    type="text" 
-                    placeholder="Signature / Favorit"
-                    value={productForm.tag}
-                    onChange={(e) => setProductForm({ ...productForm, tag: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:border-sky-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-600 block mb-1">Image URL (URL Gambar Menu)</label>
-                <input 
-                  type="text" 
-                  placeholder="https://images.unsplash.com/..."
-                  value={productForm.imageUrl}
-                  onChange={(e) => setProductForm({ ...productForm, imageUrl: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 text-slate-900 focus:outline-none focus:border-sky-500"
-                />
-              </div>
-
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-                <button 
-                  type="button" 
-                  onClick={() => setShowProductModal(false)}
-                  className="px-4 py-2 border border-slate-100 text-slate-600 hover:text-slate-900 rounded-xl font-bold cursor-pointer"
-                >
-                  Batal
-                </button>
-                <SpinnerButton
-                  type="submit"
-                  loading={saving}
-                  loadingText="Menyimpan…"
-                  className="px-5 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-bold cursor-pointer"
-                >
-                  Simpan Perubahan
-                </SpinnerButton>
-              </div>
-            </form>
           </div>
         </div>
+
+        {/* Category Pills Bar */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 scroll-slim">
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => {
+                setSelectedCategory(cat);
+                setProductsPage(1);
+              }}
+              className={cn(
+                'whitespace-nowrap rounded-xl px-3 py-1.5 text-xs font-bold transition-colors shrink-0',
+                selectedCategory === cat
+                  ? 'bg-[var(--color-brand-600)] text-white shadow-xs'
+                  : 'bg-[var(--color-snow)] text-[var(--color-slate-body)] hover:bg-[var(--color-brand-50)] hover:text-[var(--color-brand-800)] border border-[var(--color-hairline)]'
+              )}
+            >
+              {cat === 'all' ? 'Semua Kategori' : cat}
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      {/* Catalog Display */}
+      {loading ? (
+        <div className="py-16 text-center text-xs text-[var(--color-slate-muted)] animate-pulse">
+          Memuat katalog menu dari database...
+        </div>
+      ) : paginatedProducts.length === 0 ? (
+        <Card className="p-12 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--color-brand-50)] text-[var(--color-brand-600)] mb-3">
+            <ShoppingBag className="h-6 w-6" />
+          </div>
+          <h3 className="text-sm font-bold text-[var(--color-ink)]">Tidak ada menu ditemukan</h3>
+          <p className="text-xs text-[var(--color-slate-muted)] mt-1 max-w-sm mx-auto">
+            {productsSearch ? `Tidak ada menu yang sesuai dengan pencarian "${productsSearch}".` : 'Mulai tambahkan menu pertama Anda agar kasir dapat memulai transaksi.'}
+          </p>
+          {!productsSearch && (
+            <Button onClick={openAddProduct} size="sm" className="mt-4">
+              <Plus className="h-4 w-4" />
+              <span>Tambah Menu Sekarang</span>
+            </Button>
+          )}
+        </Card>
+      ) : viewMode === 'grid' ? (
+        /* GRID VIEW */
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {paginatedProducts.map((p) => {
+            const priceNum = Number(p.price) || 0;
+            const costPriceNum = p.costPrice != null ? Number(p.costPrice) : null;
+            const marginAmt = costPriceNum != null ? priceNum - costPriceNum : null;
+            const marginPct = marginAmt != null && priceNum > 0 ? Math.round((marginAmt / priceNum) * 100) : null;
+
+            return (
+              <Card
+                key={p.id}
+                className="overflow-hidden group flex flex-col justify-between hover:border-[var(--color-brand-300)] hover:shadow-md transition-all duration-200"
+              >
+                <div>
+                  {/* Image banner / placeholder */}
+                  <div className="relative h-36 w-full bg-gradient-to-br from-[var(--color-brand-50)] to-slate-100 overflow-hidden flex items-center justify-center">
+                    {p.imageUrl || p.image_url ? (
+                      <img
+                        src={p.imageUrl || p.image_url}
+                        alt={p.name}
+                        className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    ) : (
+                      <Coffee className="h-10 w-10 text-[var(--color-brand-300)]" />
+                    )}
+
+                    {/* Tag badge */}
+                    {p.tag && (
+                      <div className="absolute top-2.5 left-2.5">
+                        <Badge variant="coral" className="text-[10px] shadow-xs">
+                          {p.tag}
+                        </Badge>
+                      </div>
+                    )}
+
+                    {/* Category badge */}
+                    <div className="absolute bottom-2.5 left-2.5">
+                      <span className="rounded-md bg-black/60 backdrop-blur-xs px-2 py-0.5 text-[10px] font-bold text-white">
+                        {p.category}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Body Content */}
+                  <div className="p-4 space-y-2">
+                    <h3 className="font-bold text-sm text-[var(--color-ink)] leading-snug truncate" title={p.name}>
+                      {p.name}
+                    </h3>
+
+                    <div className="flex items-baseline justify-between pt-1">
+                      <div className="text-base font-black text-[var(--color-brand-700)]">
+                        {formatRupiah(priceNum)}
+                      </div>
+
+                      {marginPct != null && (
+                        <Badge variant={marginPct >= 50 ? 'success' : marginPct >= 20 ? 'brand' : 'warning'} className="text-[10px] px-1.5">
+                          Margin {marginPct}%
+                        </Badge>
+                      )}
+                    </div>
+
+                    {/* HPP Detail */}
+                    <div className="text-[11px] text-[var(--color-slate-muted)] flex items-center justify-between pt-1 border-t border-[var(--color-hairline)]">
+                      <span>HPP Pokok:</span>
+                      <span className="font-medium text-[var(--color-slate-body)]">
+                        {costPriceNum != null ? formatRupiah(costPriceNum) : 'Belum diisi'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card Action Footer */}
+                <div className="p-3 border-t border-[var(--color-hairline)] bg-[var(--color-snow)] flex items-center justify-end gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => openEditProduct(p)}
+                    className="h-8 px-2.5 text-xs"
+                  >
+                    <Edit3 className="h-3.5 w-3.5" />
+                    <span>Sunting</span>
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteProduct(p.id, p.name)}
+                    className="h-8 w-8 flex items-center justify-center rounded-xl text-[var(--color-slate-muted)] hover:bg-rose-50 hover:text-rose-600 transition-colors"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      ) : (
+        /* TABLE VIEW */
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-[var(--color-snow)] text-[var(--color-slate-muted)] font-semibold border-b border-[var(--color-hairline)]">
+                <tr>
+                  <th className="px-6 py-3.5">Menu Produk</th>
+                  <th className="px-4 py-3.5">Kategori</th>
+                  <th className="px-4 py-3.5">Tag</th>
+                  <th className="px-4 py-3.5 text-right">Harga Jual</th>
+                  <th className="px-4 py-3.5 text-right">HPP (Modal)</th>
+                  <th className="px-4 py-3.5 text-center">Margin</th>
+                  <th className="px-6 py-3.5 text-right">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--color-hairline)]">
+                {paginatedProducts.map((p) => {
+                  const priceNum = Number(p.price) || 0;
+                  const costPriceNum = p.costPrice != null ? Number(p.costPrice) : null;
+                  const marginAmt = costPriceNum != null ? priceNum - costPriceNum : null;
+                  const marginPct = marginAmt != null && priceNum > 0 ? Math.round((marginAmt / priceNum) * 100) : null;
+
+                  return (
+                    <tr key={p.id} className="hover:bg-[var(--color-brand-50)]/40 transition-colors">
+                      <td className="px-6 py-3.5 font-bold text-[var(--color-ink)] flex items-center gap-3">
+                        <div className="h-9 w-9 rounded-xl bg-[var(--color-brand-50)] border border-[var(--color-hairline)] overflow-hidden shrink-0 flex items-center justify-center">
+                          {p.imageUrl || p.image_url ? (
+                            <img src={p.imageUrl || p.image_url} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <Coffee className="h-4 w-4 text-[var(--color-brand-400)]" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="font-bold text-sm text-[var(--color-ink)]">{p.name}</div>
+                          <div className="text-[10px] text-[var(--color-slate-muted)] font-mono">{p.id}</div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <Badge variant="secondary">{p.category}</Badge>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        {p.tag ? <Badge variant="coral">{p.tag}</Badge> : '-'}
+                      </td>
+                      <td className="px-4 py-3.5 text-right font-bold text-[var(--color-ink)]">
+                        {formatRupiah(priceNum)}
+                      </td>
+                      <td className="px-4 py-3.5 text-right text-rose-600">
+                        {costPriceNum != null ? formatRupiah(costPriceNum) : '-'}
+                      </td>
+                      <td className="px-4 py-3.5 text-center">
+                        {marginPct != null ? (
+                          <Badge variant={marginPct >= 50 ? 'success' : marginPct >= 20 ? 'brand' : 'warning'}>
+                            {marginPct}%
+                          </Badge>
+                        ) : '-'}
+                      </td>
+                      <td className="px-6 py-3.5 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button size="sm" variant="outline" onClick={() => openEditProduct(p)} className="h-7 px-2 text-xs">
+                            <Edit3 className="h-3 w-3" />
+                            <span>Sunting</span>
+                          </Button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteProduct(p.id, p.name)}
+                            className="p-1.5 text-[var(--color-slate-muted)] hover:text-rose-600 rounded-lg hover:bg-rose-50"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
+
+      {/* Pagination */}
+      {filteredProducts.length > ITEMS_PER_PAGE && (
+        <div className="flex justify-center pt-2">
+          <Pagination
+            currentPage={productsPage}
+            totalItems={filteredProducts.length}
+            itemsPerPage={ITEMS_PER_PAGE}
+            onPageChange={setProductsPage}
+          />
+        </div>
+      )}
+
+      {/* Product Edit / Create Modal */}
+      <ProductModal
+        open={showProductModal}
+        onClose={() => setShowProductModal(false)}
+        product={editingProduct}
+        materials={materials}
+        onSave={handleSaveProduct}
+        saving={saving}
+      />
     </div>
   );
 }

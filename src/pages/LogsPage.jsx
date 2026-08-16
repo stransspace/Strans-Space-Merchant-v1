@@ -1,6 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, RotateCcw } from 'lucide-react';
+import { 
+  Search, 
+  Filter, 
+  RotateCcw, 
+  History, 
+  User, 
+  Calendar, 
+  ShieldCheck, 
+  Layers
+} from 'lucide-react';
 import { getActivityLogs, getCashiers } from '../lib/api';
+import { formatDate, formatDateTime, cn } from '../lib/utils';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/card';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Select } from '../components/ui/select';
+import { Badge } from '../components/ui/badge';
 import Pagination from '../components/Pagination';
 
 export default function LogsPage({ activeBranchId, setActionError }) {
@@ -10,37 +25,34 @@ export default function LogsPage({ activeBranchId, setActionError }) {
   const [logsPage, setLogsPage] = useState(1);
   const [loading, setLoading] = useState(false);
 
-  // Advanced Filters State
+  // Filters State
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedCashierId, setSelectedCashierId] = useState('');
   const [selectedAction, setSelectedAction] = useState('');
-  const [selectedEntity, setSelectedEntity] = useState('');
 
-  const ITEMS_PER_PAGE = 10;
+  const ITEMS_PER_PAGE = 12;
 
   const loadLogsAndCashiers = async () => {
     setLoading(true);
     try {
       const scope = activeBranchId === 'all' ? 'company' : null;
-      
       const filters = {
         startDate: startDate || undefined,
         endDate: endDate || undefined,
         cashierId: selectedCashierId || undefined,
         action: selectedAction || undefined,
-        entity: selectedEntity || undefined
       };
 
       const [logsData, cashiersData] = await Promise.all([
-        getActivityLogs(scope, filters).catch(e => { console.error(e); return []; }),
-        getCashiers(scope).catch(e => { console.error(e); return []; })
+        getActivityLogs(scope, filters).catch(() => []),
+        getCashiers(scope).catch(() => [])
       ]);
 
       setActivityLogs(Array.isArray(logsData) ? logsData : []);
       setCashiersList(Array.isArray(cashiersData) ? cashiersData : []);
     } catch (err) {
-      setActionError('Gagal memuat data log audit: ' + err.message);
+      setActionError('Gagal memuat log audit: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -60,23 +72,14 @@ export default function LogsPage({ activeBranchId, setActionError }) {
     setEndDate('');
     setSelectedCashierId('');
     setSelectedAction('');
-    setSelectedEntity('');
     setLogsSearch('');
     setLogsPage(1);
-    
-    // Fetch logs again with empty filters
     setLoading(true);
     const scope = activeBranchId === 'all' ? 'company' : null;
     getActivityLogs(scope, {})
-      .then(logsData => {
-        setActivityLogs(Array.isArray(logsData) ? logsData : []);
-      })
-      .catch(err => {
-        setActionError('Gagal memuat log audit: ' + err.message);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+      .then(data => setActivityLogs(Array.isArray(data) ? data : []))
+      .catch(err => setActionError('Gagal memuat log audit: ' + err.message))
+      .finally(() => setLoading(false));
   };
 
   const filteredLogs = activityLogs.filter(log => {
@@ -93,212 +96,177 @@ export default function LogsPage({ activeBranchId, setActionError }) {
   const paginatedLogs = filteredLogs.slice(startIndex, startIndex + ITEMS_PER_PAGE);
 
   return (
-    <div className="bg-white border border-slate-100 p-6 rounded-2xl space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
-      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-        <div>
-          <h3 className="font-bold text-slate-900 text-base">Log Audit & Aktivitas Staf</h3>
-          <p className="text-xs text-slate-600">
-            {activeBranchId === 'all' 
-              ? 'Daftar audit tindakan staf real-time di seluruh cabang perusahaan.'
-              : 'Daftar audit tindakan staf real-time di cabang aktif.'}
-          </p>
-        </div>
+    <div className="space-y-6 animate-in fade-in duration-200">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-black tracking-tight text-[var(--color-ink)]">
+          Log Audit & Aktivitas Staf
+        </h1>
+        <p className="text-xs text-[var(--color-slate-muted)] mt-0.5">
+          Jejak rekaman aktivitas staf, buka-tutup shift kasir, perubahan harga produk, dan manipulasi data.
+        </p>
       </div>
 
-      {/* Advanced Filters Panel */}
-      <div className="p-4 bg-slate-50/40 border border-slate-100 rounded-2xl grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3.5 text-xs">
-        <div>
-          <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Tanggal Mulai</label>
-          <input 
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="w-full bg-slate-50 border border-slate-100 text-slate-900 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-500 font-mono font-semibold"
-          />
-        </div>
-        
-        <div>
-          <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Tanggal Selesai</label>
-          <input 
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="w-full bg-slate-50 border border-slate-100 text-slate-900 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-500 font-mono font-semibold"
-          />
+      {/* Filter Card */}
+      <Card className="p-4 space-y-3">
+        <div className="flex flex-wrap items-center gap-3 text-xs">
+          <div className="flex items-center gap-1.5">
+            <span className="font-bold text-[var(--color-slate-muted)]">Dari:</span>
+            <Input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-36 h-9 text-xs font-mono"
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="font-bold text-[var(--color-slate-muted)]">Sampai:</span>
+            <Input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-36 h-9 text-xs font-mono"
+            />
+          </div>
+
+          <div className="w-40">
+            <Select
+              value={selectedCashierId}
+              onChange={(e) => setSelectedCashierId(e.target.value)}
+              className="h-9 text-xs"
+            >
+              <option value="">Semua Staf Kasir</option>
+              {cashiersList.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </Select>
+          </div>
+
+          <div className="w-36">
+            <Select
+              value={selectedAction}
+              onChange={(e) => setSelectedAction(e.target.value)}
+              className="h-9 text-xs"
+            >
+              <option value="">Semua Aksi</option>
+              <option value="create">Tambah Data</option>
+              <option value="update">Ubah Data</option>
+              <option value="delete">Hapus Data</option>
+              <option value="login">Login Kasir</option>
+            </Select>
+          </div>
+
+          <Button size="sm" onClick={handleApplyFilters} className="h-9">
+            <Filter className="h-3.5 w-3.5" />
+            <span>Filter</span>
+          </Button>
+
+          <Button size="sm" variant="ghost" onClick={handleResetFilters} className="h-9">
+            <RotateCcw className="h-3.5 w-3.5" />
+            <span>Reset</span>
+          </Button>
         </div>
 
-        <div>
-          <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Staf / Kasir</label>
-          <select
-            value={selectedCashierId}
-            onChange={(e) => setSelectedCashierId(e.target.value)}
-            className="w-full bg-slate-50 border border-slate-100 text-slate-700 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-500 font-semibold"
-          >
-            <option value="">Semua Kasir</option>
-            {cashiersList.map(c => (
-              <option key={c.id} value={c.id}>{c.name} ({c.role})</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Jenis Tindakan</label>
-          <select
-            value={selectedAction}
-            onChange={(e) => setSelectedAction(e.target.value)}
-            className="w-full bg-slate-50 border border-slate-100 text-slate-700 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-500 font-semibold"
-          >
-            <option value="">Semua Tindakan</option>
-            <option value="create">Create (Tambah)</option>
-            <option value="update">Update (Ubah)</option>
-            <option value="delete">Delete (Hapus)</option>
-            <option value="adjust_stock">Adjust Stock (Penyesuaian)</option>
-            <option value="checkout">Checkout (Buka Shift/Bayar)</option>
-            <option value="payment_webhook">Webhook (Payment)</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Entitas Modul</label>
-          <select
-            value={selectedEntity}
-            onChange={(e) => setSelectedEntity(e.target.value)}
-            className="w-full bg-slate-50 border border-slate-100 text-slate-700 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-500 font-semibold"
-          >
-            <option value="">Semua Modul</option>
-            <option value="orders">Orders (Pesanan)</option>
-            <option value="materials">Materials (Bahan Baku)</option>
-            <option value="products">Products (Menu Menu)</option>
-            <option value="vouchers">Vouchers (Kupon Promo)</option>
-            <option value="expenses">Expenses (Biaya/Beban)</option>
-            <option value="cashiers">Cashiers (Akun Staf)</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        {/* Search Input */}
-        <div className="relative w-full max-w-xs shrink-0">
-          <Search className="absolute left-3 top-2.5 text-slate-500" size={16} />
-          <input
-            type="text"
-            placeholder="Cari rincian perubahan..."
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--color-slate-muted)] pointer-events-none" />
+          <Input
+            placeholder="Ketik kata kunci untuk mencari dalam log aktivitas..."
             value={logsSearch}
             onChange={(e) => {
               setLogsSearch(e.target.value);
               setLogsPage(1);
             }}
-            className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-900 focus:outline-none focus:border-sky-500 placeholder-slate-500 font-semibold"
+            className="pl-9 h-9 text-xs"
           />
         </div>
+      </Card>
 
-        {/* Filter Action Buttons */}
-        <div className="flex gap-2 w-full sm:w-auto justify-end">
-          <button
-            onClick={handleResetFilters}
-            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 rounded-xl font-bold flex items-center gap-1.5 transition-all cursor-pointer text-xs"
-          >
-            <RotateCcw size={14} />
-            <span>Reset</span>
-          </button>
-          
-          <button
-            onClick={handleApplyFilters}
-            className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-bold flex items-center gap-1.5 transition-all shadow-md cursor-pointer text-xs"
-          >
-            <Filter size={14} />
-            <span>Terapkan Filter</span>
-          </button>
+      {/* Main Table Card */}
+      <Card className="overflow-hidden">
+        <CardHeader className="border-b border-[var(--color-hairline)] bg-[var(--color-snow)] px-6 py-4">
+          <div className="flex items-center justify-between">
+            <CardTitle>Daftar Aktivitas Audit</CardTitle>
+            <Badge variant="brand">{filteredLogs.length} Entri</Badge>
+          </div>
+        </CardHeader>
+
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="py-16 text-center text-xs text-[var(--color-slate-muted)] animate-pulse">
+              Memuat log audit aktivitas...
+            </div>
+          ) : paginatedLogs.length === 0 ? (
+            <div className="py-12 text-center text-xs text-[var(--color-slate-muted)]">
+              Tidak ada data log yang sesuai dengan filter.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[var(--color-snow)] text-[var(--color-slate-muted)] font-semibold border-b border-[var(--color-hairline)]">
+                  <tr>
+                    <th className="px-6 py-3.5">Waktu Kejadian</th>
+                    <th className="px-4 py-3.5">Pelaku (Staf)</th>
+                    <th className="px-4 py-3.5">Aksi</th>
+                    <th className="px-4 py-3.5">Entitas</th>
+                    <th className="px-6 py-3.5">Rincian Perubahan</th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-[var(--color-hairline)]">
+                  {paginatedLogs.map((log, idx) => {
+                    const actionBadge = 
+                      log.action === 'create' ? 'success' :
+                      log.action === 'update' ? 'brand' :
+                      log.action === 'delete' ? 'danger' : 'secondary';
+
+                    return (
+                      <tr key={log.id || idx} className="hover:bg-[var(--color-brand-50)]/40 transition-colors">
+                        <td className="px-6 py-3.5 font-mono text-[var(--color-slate-muted)] text-[11px] whitespace-nowrap">
+                          {formatDateTime(log.createdAt || log.created_at)}
+                        </td>
+
+                        <td className="px-4 py-3.5 font-bold text-[var(--color-ink)] flex items-center gap-2">
+                          <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-[var(--color-brand-100)] text-[var(--color-brand-700)] text-[10px] font-bold">
+                            {(log.cashierName || 'S').charAt(0).toUpperCase()}
+                          </div>
+                          <span>{log.cashierName || 'Sistem Otomatis'}</span>
+                        </td>
+
+                        <td className="px-4 py-3.5">
+                          <Badge variant={actionBadge} className="uppercase text-[9px]">
+                            {log.action || 'activity'}
+                          </Badge>
+                        </td>
+
+                        <td className="px-4 py-3.5 font-medium text-[var(--color-slate-body)]">
+                          {log.entity || '-'}
+                        </td>
+
+                        <td className="px-6 py-3.5 text-[var(--color-slate-body)] font-mono text-[11px] max-w-xs truncate" title={String(log.details || '')}>
+                          {log.details ? (typeof log.details === 'object' ? JSON.stringify(log.details) : String(log.details)) : '-'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Pagination */}
+      {filteredLogs.length > ITEMS_PER_PAGE && (
+        <div className="flex justify-center pt-2">
+          <Pagination
+            currentPage={logsPage}
+            totalItems={filteredLogs.length}
+            itemsPerPage={ITEMS_PER_PAGE}
+            onPageChange={setLogsPage}
+          />
         </div>
-      </div>
-
-      <div className="border border-slate-100 rounded-xl overflow-hidden overflow-x-auto">
-        <table className="w-full text-left text-xs">
-          <thead className="bg-slate-100 text-slate-700 font-bold">
-            <tr>
-              <th className="p-4">Waktu</th>
-              {activeBranchId === 'all' && <th className="p-4">Cabang</th>}
-              <th className="p-4">Staf/Kasir</th>
-              <th className="p-4">Tindakan</th>
-              <th className="p-4">Entitas</th>
-              <th className="p-4">Rincian Perubahan</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 bg-slate-50/20">
-            {paginatedLogs.map((log) => {
-              let detailsObj = null;
-              if (log.details) {
-                try {
-                  detailsObj = typeof log.details === 'string' ? JSON.parse(log.details) : log.details;
-                } catch (e) {
-                  detailsObj = log.details;
-                }
-              }
-              
-              const actionColors = {
-                create: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
-                update: 'bg-sky-500/10 text-sky-400 border border-sky-500/20',
-                delete: 'bg-rose-500/10 text-rose-400 border border-rose-500/20',
-                adjust_stock: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
-                checkout: 'bg-purple-500/10 text-purple-400 border border-purple-500/20',
-                payment_webhook: 'bg-teal-500/10 text-teal-400 border border-teal-500/20'
-              };
-              const actionBadgeClass = actionColors[log.action] || 'bg-slate-100 text-slate-600 border border-slate-200';
-
-              return (
-                <tr key={log.id} className="hover:bg-slate-100/30 text-slate-800">
-                  <td className="p-4 text-slate-600 font-mono text-[10px] whitespace-nowrap">
-                    {log.createdAt ? new Date(log.createdAt).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : '-'}
-                  </td>
-                  {activeBranchId === 'all' && (
-                    <td className="p-4 font-bold text-slate-600 truncate max-w-[120px]" title={log.tenantName}>
-                      {log.tenantName || 'Cabang Utama'}
-                    </td>
-                  )}
-                  <td className="p-4 font-bold text-slate-900">
-                    {log.cashierName || 'System'}
-                  </td>
-                  <td className="p-4">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase ${actionBadgeClass}`}>
-                      {log.action}
-                    </span>
-                  </td>
-                  <td className="p-4 capitalize font-semibold text-slate-700">
-                    {log.entity} <span className="text-[10px] text-slate-500 font-mono">({log.entityId || '-'})</span>
-                  </td>
-                  <td className="p-4 max-w-xs truncate text-[11px] text-slate-600 font-mono" title={typeof detailsObj === 'object' ? JSON.stringify(detailsObj) : String(detailsObj)}>
-                    {detailsObj ? (
-                      typeof detailsObj === 'object' ? (
-                        <span className="block truncate">
-                          {Object.entries(detailsObj).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', ')}
-                        </span>
-                      ) : (
-                        String(detailsObj)
-                      )
-                    ) : (
-                      '-'
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {filteredLogs.length === 0 && (
-              <tr>
-                <td colSpan={activeBranchId === 'all' ? 6 : 5} className="p-8 text-center text-slate-500">
-                  Tidak ditemukan aktivitas yang cocok dengan pencarian Anda.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <Pagination 
-        currentPage={logsPage} 
-        totalItems={filteredLogs.length} 
-        itemsPerPage={ITEMS_PER_PAGE} 
-        onPageChange={setLogsPage} 
-      />
+      )}
     </div>
   );
 }

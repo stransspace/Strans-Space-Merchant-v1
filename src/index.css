@@ -1,40 +1,41 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* Import Strans Design Tokens */
+@import "./styles/strans.css";
 
 @theme {
   --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, "SFMono-Regular", monospace;
 
-  --color-primary: #3b82f6;
-  --color-primary-dark: #2563eb;
-  --color-primary-light: #60a5fa;
-  --radius-custom: 18px;
+  --color-primary: var(--color-brand-600);
+  --color-primary-dark: var(--color-brand-800);
+  --color-primary-light: var(--color-brand-400);
 
-  /* Brand alignment: sky-* is used widely across components as the accent color;
-     remap it onto the same blue used by strans-space-landing so the whole
-     product suite shares one brand hue instead of Tailwind's default cyan-leaning sky. */
-  --color-sky-50: #eff6ff;
-  --color-sky-100: #dbeafe;
-  --color-sky-200: #bfdbfe;
-  --color-sky-300: #93c5fd;
-  --color-sky-400: #60a5fa;
-  --color-sky-500: #3b82f6;
-  --color-sky-600: #2563eb;
-  --color-sky-700: #1d4ed8;
-  --color-sky-800: #1e40af;
-  --color-sky-900: #1e3a8a;
-  --color-sky-950: #172554;
+  --color-sky-50: #eff9fe;
+  --color-sky-100: #daf1fc;
+  --color-sky-200: #b7e5fa;
+  --color-sky-300: #82d4f6;
+  --color-sky-400: #45bef0;
+  --color-sky-500: #1fa9e5;
+  --color-sky-600: #0e88c3;
+  --color-sky-700: #0e6d9e;
+  --color-sky-800: #115c83;
+  --color-sky-900: #134d6d;
+  --color-sky-950: #0c3149;
 }
 
 body {
   font-family: var(--font-sans);
-  background-color: #f8fafc;
-  color: #0f172a;
+  background-color: var(--color-snow, #fafcfe);
+  color: var(--color-ink, #0a2a3d);
+  -webkit-font-smoothing: antialiased;
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-primary-dark);
+  outline: 2px solid var(--color-brand-500);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -46,24 +47,25 @@ body {
   }
 }
 
-/* Table clean visual contrast */
+/* Table styling with strans colors */
 table th {
-  color: #475569;
-  background-color: #f1f5f9;
-  font-weight: 700;
-  border-bottom: 2px solid #e2e8f0;
-}
-table tr:hover {
-  background-color: #f8fafc;
+  color: var(--color-slate-muted, #5a7688);
+  background-color: var(--color-brand-50, #eff9fe);
+  font-weight: 600;
+  border-bottom: 1px solid var(--color-hairline, #dcebf3);
 }
 
-/* Custom scrollbar to match light theme */
+table tr:hover {
+  background-color: rgba(239, 249, 254, 0.4);
+}
+
+/* Custom scrollbar to match strans light theme */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #f8fafc;
+  background: var(--color-snow, #fafcfe);
 }
 ::-webkit-scrollbar-thumb {
   background: #cbd5e1;
@@ -73,28 +75,22 @@ table tr:hover {
   background: #94a3b8;
 }
 
-/* Premium Vercel/Linear grid background, matching strans-space-landing */
+/* Premium Vercel/Linear grid background, matching strans-space */
 .grid-bg {
   background-image:
-    linear-gradient(to right, rgba(59, 130, 246, 0.04) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(59, 130, 246, 0.04) 1px, transparent 1px);
-  background-size: 40px 40px;
+    linear-gradient(to right, rgba(31, 169, 229, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(31, 169, 229, 0.05) 1px, transparent 1px);
+  background-size: 32px 32px;
   background-position: center top;
 }
 
-/* Glassmorphism panel for the login card */
-.glass-panel-login {
-  background: rgba(255, 255, 255, 0.75);
+/* Glassmorphism panel for login and cards */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(226, 232, 240, 0.8);
-  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.06), 0 15px 50px -10px rgba(59, 130, 246, 0.04);
-}
-
-/* Modern dots background for the login card */
-.dot-bg-login {
-  background-image: radial-gradient(rgba(59, 130, 246, 0.08) 1.5px, transparent 1.5px);
-  background-size: 24px 24px;
+  border: 1px solid var(--color-hairline, #dcebf3);
+  box-shadow: 0 20px 40px -15px rgba(7, 38, 54, 0.06), 0 15px 50px -10px rgba(31, 169, 229, 0.05);
 }
 
 /* Animasi slide-in sekali untuk toast notifikasi */

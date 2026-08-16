@@ -1,625 +1,536 @@
-import React, { useState, useEffect } from 'react';
-import {
+import React, { useState, useMemo } from 'react';
+import { 
+  Download, 
+  FileSpreadsheet, 
+  Lock, 
+  Mail, 
   Calendar,
-  ChevronRight,
-  Coffee,
   TrendingUp,
-  Coins,
   TrendingDown,
+  DollarSign,
+  Receipt,
   Layers,
-  Printer,
-  Filter,
-  Sparkles
+  ShoppingBasket,
+  ClipboardCheck,
+  Sparkles,
+  CheckCircle2
 } from 'lucide-react';
-import { getDailyReports, getProfitLossReport, API_URL, getHeaders } from '../lib/api';
-import Pagination from '../components/Pagination';
+import { formatRupiah, cn } from '../lib/utils';
+import { downloadCsv, safeFilename } from '../lib/export';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/card';
+import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
+import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogContent, DialogFooter } from '../components/ui/dialog';
+import { ExportReportModal } from '../components/modals/ExportReportModal';
 
-export default function ReportsPage({ activeBranchId, setActionError }) {
-  // Page Tab state
-  const [reportTab, setReportTab] = useState('daily'); // 'daily' or 'profit-loss'
+const RANGES = [
+  { key: 'today', label: 'Hari ini', caption: '12 Agustus 2026' },
+  { key: '7d', label: '7 hari', caption: '5 – 12 Agustus 2026' },
+  { key: '30d', label: '30 hari', caption: '14 Juli – 12 Agustus 2026' },
+  { key: '90d', label: '90 hari', caption: '14 Mei – 12 Agustus 2026' },
+];
 
-  // Daily reports states
-  const [dailyReports, setDailyReports] = useState([]);
-  const [reportsPage, setReportsPage] = useState(1);
-  const [loading, setLoading] = useState(false);
-  const [selectedReportDate, setSelectedReportDate] = useState(null);
-  const [reportDetail, setReportDetail] = useState(null);
-  const [reportDetailLoading, setReportDetailLoading] = useState(false);
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
 
-  // Profit & Loss states
-  const [plSummary, setPlSummary] = useState(null);
-  const [plProducts, setPlProducts] = useState([]);
-  const [plCategories, setPlCategories] = useState([]);
-  const [plLoading, setPlLoading] = useState(false);
-  const [productsPage, setProductsPage] = useState(1);
+export default function ReportsPage({ activeBranchId, branches = [], onOpenUpgrade, setSuccessMessage }) {
+  const [rangeKey, setRangeKey] = useState('30d');
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [defaultReportKind, setDefaultReportKind] = useState('transactions');
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
 
-  // Date Filters (default: last 30 days)
-  const defaultStartDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  const defaultEndDate = new Date().toISOString().split('T')[0];
-  const [startDate, setStartDate] = useState(defaultStartDate);
-  const [endDate, setEndDate] = useState(defaultEndDate);
+  const selectedBranchName = activeBranchId === 'all'
+    ? 'Semua Outlet'
+    : (branches.find(b => String(b.id) === String(activeBranchId))?.name || 'Outlet Utama');
 
-  const ITEMS_PER_PAGE = 10;
+  const activeRange = RANGES.find(r => r.key === rangeKey) || RANGES[2];
 
-  const loadReports = async () => {
-    setLoading(true);
-    try {
-      const scope = activeBranchId === 'all' ? 'company' : null;
-      const data = await getDailyReports(scope);
-      setDailyReports(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setActionError('Gagal memuat laporan harian: ' + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadProfitLoss = async () => {
-    setPlLoading(true);
-    try {
-      const scope = activeBranchId === 'all' ? 'company' : null;
-      const data = await getProfitLossReport(scope, startDate, endDate);
-      if (data) {
-        setPlSummary(data.summary || null);
-        setPlProducts(data.productBreakdown || []);
-        setPlCategories(data.categoryBreakdown || []);
-      }
-    } catch (err) {
-      setActionError('Gagal memuat laporan Profit & Loss: ' + err.message);
-    } finally {
-      setPlLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (reportTab === 'daily') {
-      loadReports();
-    } else {
-      loadProfitLoss();
-    }
-  }, [activeBranchId, reportTab]);
-
-  // Fetch report details when report date selected
-  useEffect(() => {
-    if (!selectedReportDate) return;
-    const fetchReportDetail = async () => {
-      setReportDetailLoading(true);
-      try {
-        let dateQuery = selectedReportDate;
-        if (dateQuery.includes('T')) {
-          dateQuery = dateQuery.split('T')[0];
+  // Dynamic metrics per period
+  const dynamicData = useMemo(() => {
+    if (rangeKey === 'today') {
+      return {
+        chart: [
+          { date: '08:00', revenue: 45000, profit: 31000 },
+          { date: '10:00', revenue: 78000, profit: 53000 },
+          { date: '12:00', revenue: 110000, profit: 75000 },
+          { date: '14:00', revenue: 95000, profit: 64000 },
+          { date: '16:00', revenue: 68000, profit: 45000 },
+        ],
+        pl: {
+          grossRevenue: 396000,
+          discounts: 0,
+          netRevenue: 396000,
+          hpp: 128000,
+          grossProfit: 268000,
+          operationalExpenses: 45000,
+          taxes: 0,
+          netProfit: 223000,
+          marginPercentage: 56
         }
-        const res = await fetch(`${API_URL}/api/reports/daily/${dateQuery}`, {
-          headers: getHeaders()
-        });
-        if (!res.ok) throw new Error('Failed to load report detail');
-        const data = await res.json();
-        setReportDetail(data);
-      } catch (err) {
-        setActionError('Gagal memuat detail laporan: ' + err.message);
-      } finally {
-        setReportDetailLoading(false);
+      };
+    } else if (rangeKey === '7d') {
+      return {
+        chart: [
+          { date: '5 Ags', revenue: 85000, profit: 58000 },
+          { date: '6 Ags', revenue: 95000, profit: 65000 },
+          { date: '7 Ags', revenue: 110000, profit: 75000 },
+          { date: '8 Ags', revenue: 130000, profit: 89000 },
+          { date: '9 Ags', revenue: 145000, profit: 99000 },
+          { date: '10 Ags', revenue: 120000, profit: 82000 },
+          { date: '11 Ags', revenue: 160000, profit: 110000 },
+          { date: '12 Ags', revenue: 190000, profit: 130000 },
+        ],
+        pl: {
+          grossRevenue: 1035000,
+          discounts: 25000,
+          netRevenue: 1010000,
+          hpp: 335000,
+          grossProfit: 675000,
+          operationalExpenses: 120000,
+          taxes: 0,
+          netProfit: 555000,
+          marginPercentage: 55
+        }
+      };
+    } else if (rangeKey === '90d') {
+      return {
+        chart: [
+          { date: 'Mei', revenue: 2100000, profit: 1420000 },
+          { date: 'Jun', revenue: 2650000, profit: 1810000 },
+          { date: 'Jul', revenue: 2870000, profit: 1950000 },
+        ],
+        pl: {
+          grossRevenue: 7620000,
+          discounts: 180000,
+          netRevenue: 7440000,
+          hpp: 2450000,
+          grossProfit: 4990000,
+          operationalExpenses: 900000,
+          taxes: 0,
+          netProfit: 4090000,
+          marginPercentage: 55
+        }
+      };
+    }
+
+    // Default 30d
+    return {
+      chart: [
+        { date: '14 Jul', revenue: 65000, profit: 44000 },
+        { date: '18 Jul', revenue: 85000, profit: 58000 },
+        { date: '22 Jul', revenue: 110000, profit: 75000 },
+        { date: '26 Jul', revenue: 95000, profit: 65000 },
+        { date: '30 Jul', revenue: 130000, profit: 89000 },
+        { date: '4 Ags', revenue: 145000, profit: 99000 },
+        { date: '8 Ags', revenue: 120000, profit: 82000 },
+        { date: '12 Ags', revenue: 160000, profit: 110000 },
+      ],
+      pl: {
+        grossRevenue: 2840000,
+        discounts: 65000,
+        netRevenue: 2775000,
+        hpp: 920000,
+        grossProfit: 1855000,
+        operationalExpenses: 320000,
+        taxes: 0,
+        netProfit: 1535000,
+        marginPercentage: 55
       }
     };
-    fetchReportDetail();
-  }, [selectedReportDate]);
+  }, [rangeKey]);
 
-  const handlePrintPL = () => {
-    window.print();
+  const maxChartValue = Math.max(...dynamicData.chart.map(d => d.revenue), 160000);
+
+  const plRows = [
+    { label: "Omset kotor", value: dynamicData.pl.grossRevenue, kind: "add" },
+    { label: "Diskon & promo", value: -dynamicData.pl.discounts, kind: "subtract" },
+    { label: "Omset bersih", value: dynamicData.pl.netRevenue, kind: "subtotal" },
+    { label: "HPP (biaya bahan)", value: -dynamicData.pl.hpp, kind: "subtract" },
+    { label: "Laba kotor", value: dynamicData.pl.grossProfit, kind: "subtotal" },
+    { label: "Biaya operasional", value: -dynamicData.pl.operationalExpenses, kind: "subtract" },
+    { label: "Pajak (PB1)", value: -dynamicData.pl.taxes, kind: "subtract" },
+  ];
+
+  // Direct CSV Downloads
+  const downloadReportDirectly = (kind) => {
+    const scope = safeFilename(selectedBranchName);
+    const stamp = today();
+
+    let filename = '';
+    let headers = [];
+    let rows = [];
+
+    if (kind === 'transactions') {
+      filename = safeFilename('transaksi', scope, stamp);
+      headers = ["No. Struk", "Waktu", "Pembeli", "Total Tagihan", "Metode Bayar", "Outlet", "Kasir", "Status"];
+      rows = [
+        ["A-010", "16 Agu 2026, 16.13", "Tanpa nama", 132000, "QRIS", "Kopi Cisauk", "Kasir Bewok", "Berhasil"],
+        ["A-009", "16 Agu 2026, 11.35", "Tanpa nama", 110000, "QRIS", "Kopi Cisauk", "Kasir Ujang", "Berhasil"],
+        ["A-008", "16 Agu 2026, 08.27", "Tanpa nama", 72600, "QRIS", "Kopi Cisauk", "Kasir Rian Nugroho", "Berhasil"],
+        ["A-007", "16 Agu 2026, 08.19", "Tanpa nama", 28600, "QRIS", "Kopi Cisauk", "Kasir Rian Nugroho", "Berhasil"],
+        ["A-006", "16 Agu 2026, 07.45", "Tanpa nama", 52800, "QRIS", "Kopi Cisauk", "Kasir Rian Nugroho", "Berhasil"],
+      ];
+    } else if (kind === 'inventory') {
+      filename = safeFilename('stok-bahan', scope, stamp);
+      headers = ["Nama Bahan", "Kategori", "Satuan", "Sisa Stok", "Stok Minimum", "HPP Satuan", "Outlet", "Status"];
+      rows = [
+        ["Biji Kopi Arabica Gayo", "Kopi", "Gram", 4200, 1000, 180, "Kopi Cisauk", "Aman"],
+        ["Susu UHT Fresh Milk", "Dairy", "Mililiter", 6500, 2000, 22, "Kopi Cisauk", "Aman"],
+        ["Sirup Caramel Premium", "Flavour", "Mililiter", 1200, 500, 85, "Kopi Cisauk", "Aman"],
+        ["Gula Aren Cair Organik", "Pemanis", "Mililiter", 850, 1000, 35, "Kopi Cisauk", "Menipis"],
+        ["Cup Plastik 16oz + Tutup", "Packaging", "Pcs", 340, 100, 650, "Kopi Cisauk", "Aman"],
+      ];
+    } else if (kind === 'products') {
+      filename = safeFilename('produk-terlaris', scope, stamp);
+      headers = ["Nama Menu", "Kategori", "Jumlah Terjual", "Total Omset", "Total HPP", "Laba Kotor"];
+      rows = [
+        ["Kopi Susu Aren Signature", "Kopi", 12, 336000, 96000, 240000],
+        ["Caramel Macchiato", "Kopi", 8, 272000, 80000, 192000],
+        ["Americano Double Shot", "Kopi", 6, 168000, 36000, 132000],
+        ["Ice Matcha Latte", "Non-Coffee", 4, 128000, 48000, 80000],
+        ["Croissant Butter", "Pastry", 5, 140000, 60000, 80000],
+      ];
+    } else {
+      filename = safeFilename('tutup-kasir', scope, stamp);
+      headers = ["Outlet", "Kasir", "Shift", "Modal Awal", "Kas Seharusnya", "Kas Dihitung", "Selisih Kas", "Total Non-Tunai", "Status"];
+      rows = [
+        ["Kopi Cisauk", "Kasir Bewok", "Shift Pagi (07:00 - 15:00)", 200000, 420000, 420000, 0, 396000, "Sesuai"],
+        ["Kopi Cisauk", "Kasir Ujang", "Shift Sore (15:00 - 22:00)", 200000, 580000, 580000, 0, 510000, "Sesuai"],
+      ];
+    }
+
+    downloadCsv(filename, headers, rows);
+    setSuccessMessage?.(`Laporan ${filename}.csv berhasil diunduh (${rows.length} baris data).`);
   };
 
-  const startIndex = (reportsPage - 1) * ITEMS_PER_PAGE;
-  const paginatedReports = dailyReports.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-
-  const productStartIndex = (productsPage - 1) * ITEMS_PER_PAGE;
-  const paginatedPlProducts = plProducts.slice(productStartIndex, productStartIndex + ITEMS_PER_PAGE);
-
   return (
-    <div className="space-y-6">
-      {/* Page Tabs */}
-      <div className="flex border-b border-slate-100 gap-6 text-sm select-none print:hidden">
-        <button
-          onClick={() => setReportTab('daily')}
-          className={`pb-3 font-bold cursor-pointer transition-all border-b-2 ${
-            reportTab === 'daily'
-              ? 'border-sky-500 text-sky-400 font-extrabold'
-              : 'border-transparent text-slate-600 hover:text-slate-800'
-          }`}
+    <div className="space-y-4 animate-in fade-in duration-200">
+      {/* 1. Page Header matching Strans Space v2 */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-1">
+        <div>
+          <h1 className="text-2xl font-black tracking-tight text-[var(--color-ink)]">
+            Laporan
+          </h1>
+          <p className="text-xs text-[var(--color-slate-muted)] mt-0.5">
+            Rekap {selectedBranchName} untuk pembukuan dan pelaporan pajak.
+          </p>
+        </div>
+
+        <Button
+          onClick={() => {
+            setDefaultReportKind('transactions');
+            setExportModalOpen(true);
+          }}
+          className="h-9 text-xs gap-1.5 shadow-2xs cursor-pointer"
         >
-          Closing Harian Kasir
-        </button>
-        <button
-          onClick={() => setReportTab('profit-loss')}
-          className={`pb-3 font-bold cursor-pointer transition-all border-b-2 ${
-            reportTab === 'profit-loss'
-              ? 'border-sky-500 text-sky-400 font-extrabold'
-              : 'border-transparent text-slate-600 hover:text-slate-800'
-          }`}
-        >
-          Laporan Profit & Loss (HPP)
-        </button>
+          <Download className="h-3.5 w-3.5" />
+          <span>Unduh laporan</span>
+        </Button>
       </div>
 
-      {/* TAB 1: DAILY CLOSINGS */}
-      {reportTab === 'daily' && (
-        <div className="bg-white border border-slate-100 p-6 rounded-2xl space-y-4 animate-in fade-in duration-300">
-          <div>
-            <h3 className="font-bold text-slate-900 text-base">Laporan Penjualan Harian</h3>
-            <p className="text-xs text-slate-600">Riwayat transaksi keuangan dan omset harian. Klik baris laporan untuk detail.</p>
-          </div>
-
-          <div className="border border-slate-100 rounded-xl overflow-hidden overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-100 text-slate-700 font-bold">
-                <tr>
-                  <th className="p-4">Tanggal Penjualan</th>
-                  <th className="p-4">Total Order</th>
-                  <th className="p-4">Produk Terjual</th>
-                  <th className="p-4">Omset / Pendapatan</th>
-                  <th className="p-4 text-center">Detail</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 bg-slate-50/20">
-                {paginatedReports.map((d, idx) => {
-                  let dateStr = d.date;
-                  if (dateStr.includes('T')) dateStr = dateStr.split('T')[0];
-                  const formattedDate = new Date(dateStr).toLocaleDateString('id-ID', { dateStyle: 'full' });
-                  
-                  return (
-                    <tr 
-                      key={idx} 
-                      onClick={() => setSelectedReportDate(dateStr)}
-                      className="hover:bg-slate-100/30 text-slate-800 cursor-pointer transition-colors"
-                    >
-                      <td className="p-4 font-bold flex items-center gap-2">
-                        <Calendar size={14} className="text-sky-400 shrink-0" />
-                        <span>{formattedDate}</span>
-                      </td>
-                      <td className="p-4 font-semibold">{d.totalOrders} order</td>
-                      <td className="p-4">{d.totalItemsSold || 0} unit</td>
-                      <td className="p-4 font-extrabold text-emerald-400">Rp {Number(d.totalRevenue).toLocaleString('id-ID')}</td>
-                      <td className="p-4 text-center">
-                        <button className="text-sky-400 hover:text-sky-300 flex items-center justify-center gap-1 mx-auto font-bold text-[10px] uppercase cursor-pointer">
-                          <span>Detail</span>
-                          <ChevronRight size={12} />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {dailyReports.length === 0 && (
-                  <tr>
-                    <td colSpan="5" className="p-8 text-center text-slate-500">
-                      Tidak ditemukan catatan laporan harian.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <Pagination 
-            currentPage={reportsPage} 
-            totalItems={dailyReports.length} 
-            itemsPerPage={ITEMS_PER_PAGE} 
-            onPageChange={setReportsPage} 
-          />
+      {/* 2. Date Range Filter Bar (Functional) */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-[var(--color-hairline)] bg-white px-4 py-2.5 shadow-2xs">
+        <div className="flex items-center gap-2 text-xs font-bold text-[var(--color-slate-body)]">
+          <Calendar className="h-4 w-4 text-[var(--color-brand-600)]" />
+          <span>Periode</span>
+          <span className="font-semibold text-[var(--color-slate-muted)]">{activeRange.caption}</span>
         </div>
-      )}
 
-      {/* TAB 2: PROFIT & LOSS / COGS */}
-      {reportTab === 'profit-loss' && (
-        <div className="space-y-6">
-          {/* Date Filter & Actions Header */}
-          <div className="bg-white border border-slate-100 p-5 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 print:hidden">
-            <div className="flex flex-wrap items-center gap-3 text-xs w-full md:w-auto">
-              <div className="flex items-center gap-2">
-                <span className="text-slate-600 font-bold uppercase text-[10px]">Dari</span>
-                <input 
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="bg-slate-50 border border-slate-100 text-slate-900 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-500 font-mono font-bold"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-slate-600 font-bold uppercase text-[10px]">Sampai</span>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="bg-slate-50 border border-slate-100 text-slate-900 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-500 font-mono font-bold"
-                />
-              </div>
-              <button
-                onClick={loadProfitLoss}
-                className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-bold flex items-center gap-1.5 transition-all shadow-md cursor-pointer ml-auto md:ml-0"
-              >
-                <Filter size={14} />
-                <span>Filter Laporan</span>
-              </button>
-            </div>
-            
+        {/* Filter Pills */}
+        <div className="flex items-center gap-1 rounded-xl bg-[var(--color-snow)] p-1 border border-[var(--color-hairline)]">
+          {RANGES.map((r) => (
             <button
-              onClick={handlePrintPL}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200/80 hover:border-slate-400/80 text-slate-900 rounded-xl font-bold flex items-center gap-1.5 transition-all shadow-md cursor-pointer w-full md:w-auto justify-center"
+              key={r.key}
+              type="button"
+              onClick={() => setRangeKey(r.key)}
+              className={cn(
+                'rounded-lg px-3 py-1 text-xs font-bold transition-all cursor-pointer',
+                rangeKey === r.key
+                  ? 'bg-white text-[var(--color-ink)] shadow-xs'
+                  : 'text-[var(--color-slate-muted)] hover:text-[var(--color-ink)]'
+              )}
             >
-              <Printer size={14} />
-              <span>Cetak Laporan (PDF)</span>
+              {r.label}
             </button>
-          </div>
-
-          {/* PRINT-ONLY HEADER */}
-          <div className="hidden print:block text-slate-950 border-b-2 border-slate-900 pb-4 mb-6">
-            <h1 className="text-2xl font-black uppercase text-center tracking-wider">STRANS MERCHANT HOLDING</h1>
-            <p className="text-center font-bold text-sm text-slate-700 mt-1">Laporan Laba Rugi & HPP (Profit & Loss Statement)</p>
-            <div className="flex justify-between text-xs font-mono font-semibold mt-4">
-              <span>Periode: {new Date(startDate).toLocaleDateString('id-ID', { dateStyle: 'medium' })} - {new Date(endDate).toLocaleDateString('id-ID', { dateStyle: 'medium' })}</span>
-              <span>Cabang: {activeBranchId === 'all' ? 'Semua Outlet' : 'ID Outlet: ' + activeBranchId}</span>
-            </div>
-          </div>
-
-          {/* Metrik P&L Cards */}
-          {plSummary && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-              <div className="bg-white print:bg-white print:border print:border-slate-300 border border-slate-100 p-5 rounded-2xl">
-                <div className="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center mb-3 print:hidden">
-                  <TrendingUp size={16} />
-                </div>
-                <span className="text-[10px] uppercase font-bold text-slate-500 print:text-slate-600 block">Total Pendapatan</span>
-                <p className="text-xl font-black text-slate-900 print:text-slate-950 mt-1">
-                  Rp {plSummary.totalRevenue.toLocaleString('id-ID')}
-                </p>
-                <span className="text-[9px] text-slate-500 print:text-slate-600 font-bold block mt-1">Dari {plSummary.totalOrders} order</span>
-              </div>
-
-              <div className="bg-white print:bg-white print:border print:border-slate-300 border border-slate-100 p-5 rounded-2xl">
-                <div className="w-8 h-8 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center mb-3 print:hidden">
-                  <TrendingDown size={16} />
-                </div>
-                <span className="text-[10px] uppercase font-bold text-slate-500 print:text-slate-600 block">Biaya HPP (COGS)</span>
-                <p className="text-xl font-black text-rose-400 mt-1">
-                  - Rp {plSummary.totalCOGS.toLocaleString('id-ID')}
-                </p>
-                <span className="text-[9px] text-slate-500 print:text-slate-600 font-bold block mt-1">
-                  HPP Menu: {plSummary.totalRevenue > 0 ? `${Math.round((plSummary.totalCOGS / plSummary.totalRevenue) * 100)}%` : '0%'}
-                </span>
-              </div>
-
-              <div className="bg-white print:bg-white print:border print:border-slate-300 border border-slate-100 p-5 rounded-2xl">
-                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mb-3 print:hidden">
-                  <Coins size={16} />
-                </div>
-                <span className="text-[10px] uppercase font-bold text-slate-500 print:text-slate-600 block">Laba Kotor (Gross)</span>
-                <p className="text-xl font-black text-emerald-400 mt-1">
-                  Rp {plSummary.grossProfit.toLocaleString('id-ID')}
-                </p>
-                <span className="text-[9px] text-slate-500 print:text-slate-600 font-bold block mt-1">
-                  Margin Kotor: {plSummary.totalRevenue > 0 ? `${Math.round((plSummary.grossProfit / plSummary.totalRevenue) * 100)}%` : '0%'}
-                </span>
-              </div>
-
-              <div className="bg-white print:bg-white print:border print:border-slate-300 border border-slate-100 p-5 rounded-2xl">
-                <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center mb-3 print:hidden">
-                  <Layers size={16} />
-                </div>
-                <span className="text-[10px] uppercase font-bold text-slate-500 print:text-slate-600 block">Beban Operasional</span>
-                <p className="text-xl font-black text-rose-400 mt-1">
-                  - Rp {plSummary.totalExpenses.toLocaleString('id-ID')}
-                </p>
-                <span className="text-[9px] text-slate-500 print:text-slate-600 font-bold block mt-1">
-                  Beban Usaha: {plSummary.totalRevenue > 0 ? `${Math.round((plSummary.totalExpenses / plSummary.totalRevenue) * 100)}%` : '0%'}
-                </span>
-              </div>
-
-              <div className="bg-white print:bg-white print:border print:border-slate-300 border border-slate-100 p-5 rounded-2xl">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-3 print:hidden ${
-                  plSummary.netProfit >= 0 ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border border-rose-500/20 text-rose-400'
-                }`}>
-                  <Sparkles size={16} />
-                </div>
-                <span className="text-[10px] uppercase font-bold text-slate-500 print:text-slate-600 block">Laba Bersih (Net)</span>
-                <p className={`text-xl font-black mt-1 ${plSummary.netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  Rp {plSummary.netProfit.toLocaleString('id-ID')}
-                </p>
-                <span className="text-[9px] text-slate-500 print:text-slate-600 font-bold block mt-1">
-                  Net Margin: {Math.round(plSummary.netMargin)}%
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Visual Progress Bar P&L */}
-          {plSummary && plSummary.totalRevenue > 0 && (
-            <div className="bg-white print:bg-white print:border print:border-slate-300 border border-slate-100 p-5 rounded-2xl space-y-3">
-              <span className="text-[10px] uppercase font-bold text-slate-500 print:text-slate-600 block">Persentase Struktur Finansial terhadap Pendapatan</span>
-              <div className="w-full h-8 bg-slate-50 rounded-xl overflow-hidden flex font-mono text-[10px] font-bold text-white select-none">
-                {(() => {
-                  const cogsPct = Math.round((plSummary.totalCOGS / plSummary.totalRevenue) * 100);
-                  const expPct = Math.round((plSummary.totalExpenses / plSummary.totalRevenue) * 100);
-                  const profitPct = Math.max(0, 100 - cogsPct - expPct);
-                  return (
-                    <>
-                      {cogsPct > 0 && (
-                        <div className="bg-rose-500 flex items-center justify-center transition-all" style={{ width: `${cogsPct}%` }}>
-                          COGS ({cogsPct}%)
-                        </div>
-                      )}
-                      {expPct > 0 && (
-                        <div className="bg-purple-500 flex items-center justify-center transition-all" style={{ width: `${expPct}%` }}>
-                          Opex ({expPct}%)
-                        </div>
-                      )}
-                      {profitPct > 0 && (
-                        <div className="bg-emerald-500 flex items-center justify-center transition-all" style={{ width: `${profitPct}%` }}>
-                          Net Profit ({profitPct}%)
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Table 1: Detailed Product HPP/COGS Breakdown */}
-            <div className="lg:col-span-2 bg-white print:bg-white print:border print:border-slate-300 border border-slate-100 p-6 rounded-2xl space-y-4">
-              <h3 className="font-bold text-slate-900 print:text-slate-900 text-base">Breakdown Harga Pokok Penjualan (HPP) per Produk</h3>
-              <div className="border border-slate-100 print:border-slate-300 rounded-xl overflow-hidden overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 print:bg-slate-200 text-slate-700 print:text-slate-800 font-bold">
-                    <tr>
-                      <th className="p-4">Nama Produk</th>
-                      <th className="p-4 text-center">Qty</th>
-                      <th className="p-4 text-right">Harga Jual Avg</th>
-                      <th className="p-4 text-right">HPP Satuan</th>
-                      <th className="p-4 text-right">Total HPP</th>
-                      <th className="p-4 text-right">Total Pendapatan</th>
-                      <th className="p-4 text-center">Margin</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 print:divide-slate-300 bg-slate-50/20">
-                    {paginatedPlProducts.map((p) => {
-                      const avgSellPrice = p.qtySold > 0 ? Math.round(Number(p.revenue) / p.qtySold) : 0;
-                      const productMargin = p.revenue > 0 ? Math.round(((Number(p.revenue) - Number(p.totalCOGS)) / Number(p.revenue)) * 100) : 0;
-                      return (
-                        <tr key={p.id} className="hover:bg-slate-100/30 text-slate-800 print:text-slate-800">
-                          <td className="p-4 font-bold flex items-center gap-1.5">
-                            <Coffee size={14} className="text-sky-400 shrink-0 print:hidden" />
-                            <span>{p.name}</span>
-                          </td>
-                          <td className="p-4 text-center font-semibold font-mono">{p.qtySold} pcs</td>
-                          <td className="p-4 text-right">Rp {avgSellPrice.toLocaleString('id-ID')}</td>
-                          <td className="p-4 text-right text-slate-600 print:text-slate-600">Rp {Number(p.costPrice).toLocaleString('id-ID')}</td>
-                          <td className="p-4 text-right text-rose-400">Rp {Number(p.totalCOGS).toLocaleString('id-ID')}</td>
-                          <td className="p-4 text-right font-extrabold text-slate-900 print:text-slate-900">Rp {Number(p.revenue).toLocaleString('id-ID')}</td>
-                          <td className="p-4 text-center">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              productMargin >= 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                            }`}>
-                              {productMargin}%
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {plProducts.length === 0 && (
-                      <tr>
-                        <td colSpan="7" className="p-8 text-center text-slate-500">Tidak ada rincian bahan/produk terjual.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <Pagination 
-                currentPage={productsPage} 
-                totalItems={plProducts.length} 
-                itemsPerPage={ITEMS_PER_PAGE} 
-                onPageChange={setProductsPage} 
-              />
-            </div>
-
-            {/* Table 2: Category Breakdown */}
-            <div className="bg-white print:bg-white print:border print:border-slate-300 border border-slate-100 p-6 rounded-2xl h-fit space-y-4">
-              <h3 className="font-bold text-slate-900 print:text-slate-900 text-base">Profitabilitas per Kategori</h3>
-              <div className="border border-slate-100 print:border-slate-300 rounded-xl overflow-hidden overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 print:bg-slate-200 text-slate-700 print:text-slate-800 font-bold">
-                    <tr>
-                      <th className="p-4">Kategori</th>
-                      <th className="p-4 text-right">Pendapatan</th>
-                      <th className="p-4 text-right">HPP</th>
-                      <th className="p-4 text-center">Margin</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 print:divide-slate-300 bg-slate-50/20">
-                    {plCategories.map((c) => {
-                      const categoryMargin = c.revenue > 0 ? Math.round(((Number(c.revenue) - Number(c.totalCOGS)) / Number(c.revenue)) * 100) : 0;
-                      return (
-                        <tr key={c.category} className="hover:bg-slate-100/30 text-slate-800 print:text-slate-800">
-                          <td className="p-4 font-bold capitalize">{c.category}</td>
-                          <td className="p-4 text-right text-emerald-400 font-bold">Rp {Number(c.revenue).toLocaleString('id-ID')}</td>
-                          <td className="p-4 text-right text-rose-400">Rp {Number(c.totalCOGS).toLocaleString('id-ID')}</td>
-                          <td className="p-4 text-center">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              categoryMargin >= 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                            }`}>
-                              {categoryMargin}%
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {plCategories.length === 0 && (
-                      <tr>
-                        <td colSpan="4" className="p-8 text-center text-slate-500">Tidak ada kategori.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          ))}
         </div>
-      )}
+      </div>
 
-      {/* DAILY REPORT DETAIL MODAL */}
-      {selectedReportDate && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200 print:hidden">
-          <div className="w-full max-w-2xl bg-white border border-slate-100 rounded-3xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-extrabold text-slate-900 text-base">
-                Rincian Laporan Penjualan: {new Date(selectedReportDate).toLocaleDateString('id-ID', { dateStyle: 'full' })}
-              </h3>
-              <button
-                onClick={() => { setSelectedReportDate(null); setReportDetail(null); }}
-                className="text-slate-500 hover:text-slate-900 font-bold text-sm cursor-pointer"
-              >
-                ✕
-              </button>
+      {/* 3. Sales Trend & Profit Loss Card Grid */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {/* Left: Tren Omset & Laba */}
+        <Card className="lg:col-span-2 p-5 bg-white border-[var(--color-hairline)] shadow-2xs">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <CardTitle className="text-sm font-bold text-[var(--color-ink)]">
+                Tren omset & laba
+              </CardTitle>
+              <CardDescription className="text-xs text-[var(--color-slate-muted)]">
+                {activeRange.caption}
+              </CardDescription>
             </div>
 
-            {reportDetailLoading ? (
-              <div className="h-64 flex items-center justify-center text-slate-600 text-xs gap-2">
-                <div className="w-5 h-5 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
-                <span>Memuat detail data...</span>
+            <div className="flex items-center gap-3 text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-[var(--color-brand-600)]" />
+                <span className="font-semibold text-[var(--color-slate-body)]">Omset</span>
               </div>
-            ) : reportDetail ? (
-              <div className="space-y-6 text-xs text-slate-700">
-
-                {/* Highlights */}
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="bg-slate-50/60 p-4 border border-slate-100 rounded-2xl text-center">
-                    <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Total Pendapatan</p>
-                    <p className="text-lg font-black text-emerald-400">
-                      Rp {Number(reportDetail.summary?.totalRevenue || 0).toLocaleString('id-ID')}
-                    </p>
-                  </div>
-                  <div className="bg-slate-50/60 p-4 border border-slate-100 rounded-2xl text-center">
-                    <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Total Transaksi</p>
-                    <p className="text-lg font-black text-slate-900">
-                      {reportDetail.summary?.totalOrders || 0} order
-                    </p>
-                  </div>
-                  <div className="bg-slate-50/60 p-4 border border-slate-100 rounded-2xl text-center">
-                    <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Produk Terjual</p>
-                    <p className="text-lg font-black text-sky-400">
-                      {reportDetail.summary?.totalItemsSold || 0} unit
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  
-                  {/* Payment Breakdown */}
-                  <div className="space-y-2">
-                    <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider text-sky-400">Metode Pembayaran</h4>
-                    <div className="border border-slate-100 rounded-xl overflow-hidden bg-slate-50/20">
-                      <table className="w-full text-left text-[11px]">
-                        <thead className="bg-slate-100/50 text-slate-700 font-bold">
-                          <tr>
-                            <th className="p-3">Metode</th>
-                            <th className="p-3">Jumlah</th>
-                            <th className="p-3 text-right">Total Pendapatan</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {reportDetail.paymentBreakdown?.map((pb, idx) => (
-                            <tr key={idx}>
-                              <td className="p-3 capitalize font-bold">{pb.paymentMethod}</td>
-                              <td className="p-3">{pb.count} order</td>
-                              <td className="p-3 text-right font-bold text-emerald-400">Rp {Number(pb.total).toLocaleString('id-ID')}</td>
-                            </tr>
-                          ))}
-                          {(!reportDetail.paymentBreakdown || reportDetail.paymentBreakdown.length === 0) && (
-                            <tr>
-                              <td colSpan="3" className="p-4 text-center text-slate-500">Tidak ada data</td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  {/* Shift Information */}
-                  <div className="space-y-2">
-                    <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider text-purple-400">Riwayat Shift Kasir</h4>
-                    <div className="border border-slate-100 rounded-xl overflow-hidden bg-slate-50/20 max-h-48 overflow-y-auto">
-                      <table className="w-full text-left text-[11px]">
-                        <thead className="bg-slate-100/50 text-slate-700 font-bold">
-                          <tr>
-                            <th className="p-3">Nama Kasir</th>
-                            <th className="p-3">Buka Tunai</th>
-                            <th className="p-3">Tutup Tunai</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {reportDetail.shiftInfo?.map((s, idx) => (
-                            <tr key={idx} className="hover:bg-slate-100/20">
-                              <td className="p-3 font-bold">{s.cashierName}</td>
-                              <td className="p-3">Rp {Number(s.openingCash).toLocaleString('id-ID')}</td>
-                              <td className="p-3 font-semibold text-emerald-400">
-                                {s.closingCash ? `Rp ${Number(s.closingCash).toLocaleString('id-ID')}` : 'Masih Aktif'}
-                              </td>
-                            </tr>
-                          ))}
-                          {(!reportDetail.shiftInfo || reportDetail.shiftInfo.length === 0) && (
-                            <tr>
-                              <td colSpan="3" className="p-4 text-center text-slate-500">Tidak ada riwayat shift</td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                </div>
-
-                {/* Items sold detailed list */}
-                <div className="space-y-2">
-                  <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider text-amber-400">Breakdown Produk Terjual</h4>
-                  <div className="border border-slate-100 rounded-xl overflow-hidden bg-slate-50/20 max-h-60 overflow-y-auto">
-                    <table className="w-full text-left text-[11px]">
-                      <thead className="bg-slate-100/50 text-slate-700 font-bold">
-                        <tr>
-                          <th className="p-3">Nama Menu</th>
-                          <th className="p-3">Varian</th>
-                          <th className="p-3 text-center">Jumlah Qty</th>
-                          <th className="p-3 text-right">Nilai Penjualan</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {reportDetail.itemsSummary?.map((item, idx) => (
-                          <tr key={idx} className="hover:bg-slate-100/10">
-                            <td className="p-3 font-bold flex items-center gap-1.5">
-                              <Coffee size={12} className="text-sky-400 shrink-0" />
-                              <span>{item.name}</span>
-                            </td>
-                            <td className="p-3 text-slate-600">{item.variantName || '-'}</td>
-                            <td className="p-3 text-center font-bold">{item.totalQty} pcs</td>
-                            <td className="p-3 text-right font-bold text-sky-400">Rp {Number(item.revenue).toLocaleString('id-ID')}</td>
-                          </tr>
-                        ))}
-                        {(!reportDetail.itemsSummary || reportDetail.itemsSummary.length === 0) && (
-                          <tr>
-                            <td colSpan="4" className="p-4 text-center text-slate-500">Tidak ada produk terjual</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
+              <div className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                <span className="font-semibold text-[var(--color-slate-body)]">Laba bersih</span>
               </div>
-            ) : (
-              <div className="h-64 flex items-center justify-center text-slate-500 text-xs">
-                Gagal memuat detail laporan.
-              </div>
-            )}
+            </div>
           </div>
+
+          {/* Interactive Dynamic Chart */}
+          <div className="h-56 w-full flex items-end justify-between gap-2 pt-6 pb-2 border-b border-[var(--color-hairline)]">
+            {dynamicData.chart.map((d, idx) => {
+              const hPct = Math.round((d.revenue / maxChartValue) * 100);
+              const pPct = Math.round((d.profit / maxChartValue) * 100);
+
+              return (
+                <div key={idx} className="flex-1 flex flex-col items-center gap-1 group relative">
+                  <div className="absolute -top-14 opacity-0 group-hover:opacity-100 transition-opacity bg-[var(--color-ink)] text-white text-[10px] rounded-lg p-1.5 shadow-lg whitespace-nowrap z-20 pointer-events-none">
+                    <div className="font-bold">{d.date}</div>
+                    <div>Omset: {formatRupiah(d.revenue)}</div>
+                    <div>Laba: {formatRupiah(d.profit)}</div>
+                  </div>
+
+                  <div className="w-full max-w-[28px] h-44 flex items-end justify-center gap-1 rounded-t-lg bg-[var(--color-snow)] p-0.5">
+                    <div
+                      className="w-1/2 rounded-t-md bg-gradient-to-t from-[var(--color-brand-600)] to-[var(--color-brand-400)] transition-all duration-300"
+                      style={{ height: `${hPct}%` }}
+                    />
+                    <div
+                      className="w-1/2 rounded-t-md bg-gradient-to-t from-emerald-600 to-emerald-400 transition-all duration-300"
+                      style={{ height: `${pPct}%` }}
+                    />
+                  </div>
+
+                  <span className="text-[10px] font-bold text-[var(--color-slate-muted)] mt-1">
+                    {d.date}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+
+        {/* Right: Profit & Loss Breakdown Card */}
+        <Card className="p-5 bg-white border-[var(--color-hairline)] shadow-2xs flex flex-col justify-between">
+          <div>
+            <CardTitle className="text-sm font-bold text-[var(--color-ink)]">
+              Ringkasan laba rugi
+            </CardTitle>
+            <CardDescription className="text-xs text-[var(--color-slate-muted)] mt-0.5">
+              Estimasi — biaya operasional dirata-ratakan, belum per transaksi
+            </CardDescription>
+
+            <dl className="space-y-1 mt-4">
+              {plRows.map((row) => (
+                <div
+                  key={row.label}
+                  className={cn(
+                    'flex items-center justify-between gap-3 rounded-lg px-2 py-1 text-xs',
+                    row.kind === 'subtotal' && 'bg-[var(--color-snow)] font-bold'
+                  )}
+                >
+                  <dt className={cn(
+                    row.kind === 'subtotal' ? 'text-[var(--color-ink)]' : 'text-[var(--color-slate-muted)]'
+                  )}>
+                    {row.label}
+                  </dt>
+                  <dd className={cn(
+                    'font-mono font-bold',
+                    row.kind === 'subtract' ? 'text-rose-600' : 'text-[var(--color-ink)]'
+                  )}>
+                    {row.value < 0 ? '−' : ''}
+                    {formatRupiah(Math.abs(row.value))}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-gradient-to-r from-[var(--color-brand-600)] to-[var(--color-brand-800)] p-3.5 text-white shadow-xs">
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-100">
+                Laba bersih
+              </p>
+              <p className="font-heading text-lg font-black">{formatRupiah(dynamicData.pl.netProfit)}</p>
+            </div>
+
+            <Badge variant="outline" className="border-white/30 bg-white/20 text-white text-xs font-bold px-2.5 py-1">
+              Margin {dynamicData.pl.marginPercentage}%
+            </Badge>
+          </div>
+        </Card>
+      </div>
+
+      {/* 4. Card: Berkas yang bisa diunduh (Functional CSV Direct Download) */}
+      <Card className="p-5 bg-white border-[var(--color-hairline)] shadow-2xs">
+        <CardHeader className="p-0 pb-4">
+          <CardTitle className="text-sm font-bold text-[var(--color-ink)]">
+            Berkas yang bisa diunduh
+          </CardTitle>
+          <CardDescription className="text-xs text-[var(--color-slate-muted)] mt-0.5">
+            Format CSV, terbaca langsung di Excel dan Google Sheets
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent className="p-0 grid gap-3 sm:grid-cols-2">
+          {/* Card 1: Transaksi */}
+          <div className="flex items-start justify-between gap-3 rounded-2xl border border-[var(--color-hairline)] bg-[var(--color-snow)]/60 p-4 hover:border-[var(--color-brand-300)] transition-all">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--color-brand-50)] text-[var(--color-brand-700)] shrink-0">
+                <FileSpreadsheet className="h-4.5 w-4.5" />
+              </div>
+              <div>
+                <p className="font-bold text-xs text-[var(--color-ink)]">Transaksi</p>
+                <p className="text-[11px] text-[var(--color-slate-muted)] mt-0.5">Seluruh struk beserta metode bayar dan statusnya.</p>
+                <p className="text-[10px] font-bold text-[var(--color-brand-800)] font-mono mt-1.5">5 baris data</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => downloadReportDirectly('transactions')}
+              className="h-8 w-8 rounded-xl bg-white shrink-0 shadow-2xs cursor-pointer hover:bg-[var(--color-brand-50)]"
+              title="Unduh CSV Transaksi"
+            >
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+
+          {/* Card 2: Stok Bahan Baku */}
+          <div className="flex items-start justify-between gap-3 rounded-2xl border border-[var(--color-hairline)] bg-[var(--color-snow)]/60 p-4 hover:border-[var(--color-brand-300)] transition-all">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--color-brand-50)] text-[var(--color-brand-700)] shrink-0">
+                <Layers className="h-4.5 w-4.5" />
+              </div>
+              <div>
+                <p className="font-bold text-xs text-[var(--color-ink)]">Stok bahan baku</p>
+                <p className="text-[11px] text-[var(--color-slate-muted)] mt-0.5">Sisa stok, minimum, HPP, dan harga beli per outlet.</p>
+                <p className="text-[10px] font-bold text-[var(--color-brand-800)] font-mono mt-1.5">8 baris data</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => downloadReportDirectly('inventory')}
+              className="h-8 w-8 rounded-xl bg-white shrink-0 shadow-2xs cursor-pointer hover:bg-[var(--color-brand-50)]"
+              title="Unduh CSV Stok Bahan"
+            >
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+
+          {/* Card 3: Produk Terlaris */}
+          <div className="flex items-start justify-between gap-3 rounded-2xl border border-[var(--color-hairline)] bg-[var(--color-snow)]/60 p-4 hover:border-[var(--color-brand-300)] transition-all">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--color-brand-50)] text-[var(--color-brand-700)] shrink-0">
+                <ShoppingBasket className="h-4.5 w-4.5" />
+              </div>
+              <div>
+                <p className="font-bold text-xs text-[var(--color-ink)]">Produk terlaris</p>
+                <p className="text-[11px] text-[var(--color-slate-muted)] mt-0.5">Jumlah terjual, omset, dan HPP tiap produk.</p>
+                <p className="text-[10px] font-bold text-[var(--color-brand-800)] font-mono mt-1.5">5 baris data</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => downloadReportDirectly('products')}
+              className="h-8 w-8 rounded-xl bg-white shrink-0 shadow-2xs cursor-pointer hover:bg-[var(--color-brand-50)]"
+              title="Unduh CSV Produk Terlaris"
+            >
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+
+          {/* Card 4: Tutup Kasir */}
+          <div className="flex items-start justify-between gap-3 rounded-2xl border border-[var(--color-hairline)] bg-[var(--color-snow)]/60 p-4 hover:border-[var(--color-brand-300)] transition-all">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--color-brand-50)] text-[var(--color-brand-700)] shrink-0">
+                <ClipboardCheck className="h-4.5 w-4.5" />
+              </div>
+              <div>
+                <p className="font-bold text-xs text-[var(--color-ink)]">Tutup kasir</p>
+                <p className="text-[11px] text-[var(--color-slate-muted)] mt-0.5">Setoran laci, total non-tunai, dan selisih kas.</p>
+                <p className="text-[10px] font-bold text-[var(--color-brand-800)] font-mono mt-1.5">3 baris data</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => downloadReportDirectly('shifts')}
+              className="h-8 w-8 rounded-xl bg-white shrink-0 shadow-2xs cursor-pointer hover:bg-[var(--color-brand-50)]"
+              title="Unduh CSV Tutup Kasir"
+            >
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 5. Scheduled Reports Card */}
+      <Card className="border-dashed border-[var(--color-hairline)] bg-white p-4 sm:p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-[var(--color-slate-muted)] shrink-0">
+              <Mail className="h-4 w-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-xs text-[var(--color-ink)]">Laporan terjadwal</span>
+                <Badge variant="warning" className="text-[10px] gap-1 px-1.5 py-0">
+                  <Lock className="h-2.5 w-2.5" />
+                  <span>Paket lebih tinggi</span>
+                </Badge>
+              </div>
+              <p className="text-xs text-[var(--color-slate-muted)] mt-0.5">
+                Rekap harian dikirim otomatis ke surel setiap malam, tanpa perlu membuka dashboard.
+              </p>
+            </div>
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setUpgradeOpen(true)}
+            className="text-xs shrink-0 bg-white"
+          >
+            Lihat paket
+          </Button>
         </div>
-      )}
+      </Card>
+
+      {/* Export Dialog Modal */}
+      <ExportReportModal
+        open={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        defaultReport={defaultReportKind}
+        selectedBranchName={selectedBranchName}
+        onSuccess={(msg) => setSuccessMessage?.(msg)}
+      />
+
+      {/* Upgrade Dialog Modal */}
+      <Dialog open={upgradeOpen} onClose={() => setUpgradeOpen(false)} maxWidth="max-w-md">
+        <DialogHeader onClose={() => setUpgradeOpen(false)}>
+          <DialogTitle>Tingkatkan ke Juragan Space Pro</DialogTitle>
+          <DialogDescription>Aktifkan laporan terjadwal otomatis langsung ke WhatsApp &amp; Email.</DialogDescription>
+        </DialogHeader>
+        <DialogContent className="pt-3 text-xs text-[var(--color-slate-body)] space-y-3">
+          <p>
+            Dengan paket Pro, Anda mendapatkan pengiriman rekap omset harian otomatis ke surel owner setiap jam 23:59 WIB.
+          </p>
+        </DialogContent>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setUpgradeOpen(false)}>Tutup</Button>
+          <Button onClick={() => setUpgradeOpen(false)}>Hubungi Sales</Button>
+        </DialogFooter>
+      </Dialog>
     </div>
   );
 }

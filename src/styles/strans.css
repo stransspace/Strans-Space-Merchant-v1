@@ -1,0 +1,280 @@
+/* ==========================================================================
+   Strans Space — Design Tokens & Theme Palettes (V2 Exact Match)
+   ========================================================================== */
+
+@theme {
+  /* --- Default Brand: Strans Emerald Green ------------------------------- */
+  --color-brand-50: #ecfdf5;
+  --color-brand-100: #d1fae5;
+  --color-brand-200: #a7f3d0;
+  --color-brand-300: #6ee7b7;
+  --color-brand-400: #34d399;
+  --color-brand-500: #10b981;
+  --color-brand-600: #059669;
+  --color-brand-700: #047857;
+  --color-brand-800: #065f46;
+  --color-brand-900: #064e3b;
+  --color-brand-950: #022c22;
+
+  /* --- Accent: Soft Coral / Peach ------------------------------------------ */
+  --color-coral-50: #fff5f2;
+  --color-coral-100: #ffe8e2;
+  --color-coral-200: #ffd3c7;
+  --color-coral-300: #ffb39f;
+  --color-coral-400: #ff9377;
+  --color-coral-500: #ff7a66;
+  --color-coral-600: #ed5540;
+  --color-coral-700: #c63e2c;
+  --color-coral-800: #a33528;
+  --color-coral-900: #873127;
+  --color-coral-950: #4a1510;
+
+  /* --- Neutrals (Off-white / Snow / Ink) ----------------------------------- */
+  --color-snow: #f8fafc;
+  --color-ink: #0f172a;
+  --color-slate-body: #475569;
+  --color-slate-muted: #64748b;
+  --color-hairline: #e2e8f0;
+
+  /* --- Status Colors ------------------------------------------------------ */
+  --color-status-live: #059669;
+  --color-status-live-pale: #ecfdf5;
+  --color-status-beta: #d97706;
+  --color-status-beta-pale: #fef3c7;
+  --color-status-danger: #ef4444;
+  --color-status-danger-pale: #fee2e2;
+
+  /* --- Typography --------------------------------------------------------- */
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-heading: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* --- Squircle Radii ----------------------------------------------------- */
+  --radius-control: 12px;
+  --radius-card: 18px;
+  --radius-panel: 24px;
+  --radius-stage: 32px;
+
+  /* --- Soft Shadows ------------------------------------------------------- */
+  --shadow-soft: 0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
+  --shadow-float: 0 16px 36px -4px rgba(15, 23, 42, 0.08), 0 4px 12px -2px rgba(15, 23, 42, 0.04);
+  --shadow-lift: 0 24px 48px -6px rgba(15, 23, 42, 0.12);
+  --shadow-glow-brand: 0 10px 25px -5px rgba(5, 150, 105, 0.4);
+  --shadow-glow-coral: 0 10px 25px -5px rgba(237, 85, 64, 0.4);
+}
+
+/* --------------------------------------------------------------------------
+   Root & Default Light Mode
+   -------------------------------------------------------------------------- */
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --border: #e2e8f0;
+  --sidebar: #ffffff;
+  --color-ink: #0f172a;
+  --color-snow: #f8fafc;
+  --color-hairline: #e2e8f0;
+  --color-slate-body: #475569;
+  --color-slate-muted: #64748b;
+  --primary: #059669;
+}
+
+/* --------------------------------------------------------------------------
+   Dark Mode Styles (Obsidian Slate Theme)
+   -------------------------------------------------------------------------- */
+.dark, html.dark {
+  --background: #08111d;
+  --foreground: #f8fafc;
+  --card: #0f1c2e;
+  --border: #1e2f47;
+  --sidebar: #0b1625;
+  --color-ink: #f8fafc;
+  --color-snow: #08111d;
+  --color-hairline: #1e2f47;
+  --color-slate-body: #cbd5e1;
+  --color-slate-muted: #94a3b8;
+}
+
+/* Force dark mode surface styling across all legacy white utility classes */
+.dark .bg-white {
+  background-color: var(--card) !important;
+}
+.dark .bg-white\/90, .dark .bg-white\/80 {
+  background-color: color-mix(in srgb, var(--sidebar) 92%, transparent) !important;
+}
+.dark aside {
+  background-color: var(--sidebar) !important;
+  border-color: var(--border) !important;
+}
+.dark header {
+  background-color: color-mix(in srgb, var(--sidebar) 92%, transparent) !important;
+  border-color: var(--border) !important;
+}
+.dark .border-border,
+.dark .border-\[var\(--color-hairline\)\] {
+  border-color: var(--border) !important;
+}
+.dark .bg-\[var\(--color-snow\)\] {
+  background-color: #08111d !important;
+}
+.dark .text-\[var\(--color-ink\)\] {
+  color: #f8fafc !important;
+}
+.dark .text-\[var\(--color-slate-body\)\] {
+  color: #cbd5e1 !important;
+}
+.dark .text-\[var\(--color-slate-muted\)\] {
+  color: #94a3b8 !important;
+}
+.dark input, .dark select, .dark textarea {
+  background-color: #0f1c2e !important;
+  color: #f8fafc !important;
+  border-color: #1e2f47 !important;
+}
+.dark input::placeholder {
+  color: #64748b !important;
+}
+
+/* --------------------------------------------------------------------------
+   Data Color Themes (Blue, Emerald, Violet, Amber, Rose)
+   -------------------------------------------------------------------------- */
+html[data-color-theme="emerald"], :root[data-color-theme="emerald"] {
+  --primary: #059669;
+  --color-brand-50: #ecfdf5;
+  --color-brand-100: #d1fae5;
+  --color-brand-200: #a7f3d0;
+  --color-brand-300: #6ee7b7;
+  --color-brand-400: #34d399;
+  --color-brand-500: #10b981;
+  --color-brand-600: #059669;
+  --color-brand-700: #047857;
+  --color-brand-800: #065f46;
+  --color-brand-900: #064e3b;
+  --color-brand-950: #022c22;
+  --shadow-glow-brand: 0 10px 25px -5px rgba(5, 150, 105, 0.4);
+}
+
+html.dark[data-color-theme="emerald"] {
+  --color-brand-50: #06281e;
+  --color-brand-100: #083c2d;
+  --color-brand-200: #0a4f3b;
+  --color-brand-300: #34d399;
+  --color-brand-400: #6ee7b7;
+}
+
+html[data-color-theme="blue"], :root[data-color-theme="blue"] {
+  --primary: #0284c7;
+  --color-brand-50: #eef7fc;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-300: #93c5fd;
+  --color-brand-400: #60a5fa;
+  --color-brand-500: #0e88c3;
+  --color-brand-600: #0284c7;
+  --color-brand-700: #0369a1;
+  --color-brand-800: #075985;
+  --color-brand-900: #0c4a6e;
+  --color-brand-950: #082f49;
+  --shadow-glow-brand: 0 10px 25px -5px rgba(2, 132, 199, 0.4);
+}
+
+html.dark[data-color-theme="blue"] {
+  --color-brand-50: #072538;
+  --color-brand-100: #0a3854;
+  --color-brand-200: #0e4c70;
+  --color-brand-300: #60a5fa;
+  --color-brand-400: #93c5fd;
+}
+
+html[data-color-theme="violet"], :root[data-color-theme="violet"] {
+  --primary: #7c3aed;
+  --color-brand-50: #f5f3ff;
+  --color-brand-100: #ede9fe;
+  --color-brand-200: #ddd6fe;
+  --color-brand-300: #c4b5fd;
+  --color-brand-400: #a78bfa;
+  --color-brand-500: #8b5cf6;
+  --color-brand-600: #7c3aed;
+  --color-brand-700: #6d28d9;
+  --color-brand-800: #5b21b6;
+  --color-brand-900: #4c1d95;
+  --color-brand-950: #2e1065;
+  --shadow-glow-brand: 0 10px 25px -5px rgba(124, 58, 237, 0.4);
+}
+
+html.dark[data-color-theme="violet"] {
+  --color-brand-50: #240c49;
+  --color-brand-100: #351369;
+  --color-brand-200: #4c1d95;
+  --color-brand-300: #a78bfa;
+  --color-brand-400: #c4b5fd;
+}
+
+html[data-color-theme="amber"], :root[data-color-theme="amber"] {
+  --primary: #d97706;
+  --color-brand-50: #fffbeb;
+  --color-brand-100: #fef3c7;
+  --color-brand-200: #fde68a;
+  --color-brand-300: #fcd34d;
+  --color-brand-400: #fbbf24;
+  --color-brand-500: #f59e0b;
+  --color-brand-600: #d97706;
+  --color-brand-700: #b45309;
+  --color-brand-800: #92400e;
+  --color-brand-900: #78350f;
+  --color-brand-950: #451a03;
+  --shadow-glow-brand: 0 10px 25px -5px rgba(217, 119, 6, 0.4);
+}
+
+html.dark[data-color-theme="amber"] {
+  --color-brand-50: #361704;
+  --color-brand-100: #4e2206;
+  --color-brand-200: #6b2f09;
+  --color-brand-300: #fbbf24;
+  --color-brand-400: #fde68a;
+}
+
+html[data-color-theme="rose"], :root[data-color-theme="rose"] {
+  --primary: #e11d48;
+  --color-brand-50: #fff1f2;
+  --color-brand-100: #ffe4e6;
+  --color-brand-200: #fecdd3;
+  --color-brand-300: #fda4af;
+  --color-brand-400: #fb7185;
+  --color-brand-500: #f43f5e;
+  --color-brand-600: #e11d48;
+  --color-brand-700: #be123c;
+  --color-brand-800: #9f1239;
+  --color-brand-900: #881337;
+  --color-brand-950: #4c0519;
+  --shadow-glow-brand: 0 10px 25px -5px rgba(225, 29, 72, 0.4);
+}
+
+html.dark[data-color-theme="rose"] {
+  --color-brand-50: #360714;
+  --color-brand-100: #500a1e;
+  --color-brand-200: #6e0e29;
+  --color-brand-300: #fb7185;
+  --color-brand-400: #fecdd3;
+}
+
+/* --------------------------------------------------------------------------
+   Catchy Animations & Hover Micro-Interactions
+   -------------------------------------------------------------------------- */
+.catchy-card {
+  transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.catchy-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px -8px rgba(15, 23, 42, 0.08);
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}

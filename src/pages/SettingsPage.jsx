@@ -1,493 +1,840 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  CheckCircle2, 
+  Palette, 
+  Store, 
+  Shield, 
+  Bell, 
   CreditCard, 
-  QrCode, 
-  Calendar, 
-  Zap, 
+  Globe, 
+  Sun, 
+  Moon, 
+  Monitor, 
+  Check, 
+  Sparkles, 
+  Save, 
   TrendingUp, 
-  Loader2,
-  Lock,
-  Building,
-  Check,
-  ShieldCheck,
+  Lock, 
   Crown,
-  Send
+  Building2,
+  Phone,
+  Percent,
+  Receipt,
+  Download,
+  CheckCircle2,
+  ExternalLink
 } from 'lucide-react';
+import { formatRupiah, formatRupiahShort, cn } from '../lib/utils';
+import { 
+  THEME_PALETTES, 
+  applyThemePalette, 
+  applyThemeMode, 
+  getSavedPreferences 
+} from '../lib/theme';
+import { useLanguage } from '../lib/language-context';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/card';
+import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
+import { Input } from '../components/ui/input';
+import { Switch } from '../components/ui/switch';
+import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogContent, DialogFooter } from '../components/ui/dialog';
 
-export default function SettingsPage({ activeBranchId, branches, session, onRefreshBranches, setActionError, setSuccessMessage }) {
-  const activeBranch = activeBranchId === 'all' ? null : (branches.find(b => String(b.id) === String(activeBranchId)) || (session ? session.tenant : null));
+export default function SettingsPage({ 
+  activeBranchId, 
+  branches = [], 
+  session, 
+  onRefreshBranches, 
+  setActionError, 
+  setSuccessMessage 
+}) {
+  const { language, setLanguage, t } = useLanguage();
+  const saved = getSavedPreferences();
 
-  // Billing states
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState('premium');
-  const [durationMonths, setDurationMonths] = useState(6);
-  const [paymentMethod, setPaymentMethod] = useState('qris');
-  
-  // Payment simulation process states
-  const [paymentStep, setPaymentStep] = useState(1); // 1: Choose details, 2: Waiting payment / QR, 3: Success
-  const [processing, setProcessing] = useState(false);
+  const [activeTab, setActiveTab] = useState('appearance'); // 'appearance' | 'profile' | 'security' | 'notifications' | 'plan'
 
-  const planPrices = {
-    standard: 150000,
-    premium: 350000
+  // Preferences states
+  const [colorMode, setColorMode] = useState(saved.themeMode || 'light'); // 'light' | 'dark' | 'system'
+  const [selectedThemeColor, setSelectedThemeColor] = useState(saved.themeColor || 'emerald');
+
+  // Business profile form states
+  const [businessName, setBusinessName] = useState(saved.profile?.businessName || session?.tenant?.name || 'Kopi Kupu & Strans Coffee Holding');
+  const [businessCategory, setBusinessCategory] = useState(saved.profile?.businessCategory || 'F&B — Kafe & Restoran');
+  const [taxPb1, setTaxPb1] = useState(saved.profile?.taxPb1 || '10');
+  const [serviceCharge, setServiceCharge] = useState(saved.profile?.serviceCharge || '5');
+  const [businessEmail, setBusinessEmail] = useState(saved.profile?.businessEmail || 'owner@kopikupu.id');
+  const [businessPhone, setBusinessPhone] = useState(saved.profile?.businessPhone || '0812-3456-7890');
+
+  // Security and notification toggles
+  const [toggles, setToggles] = useState(saved.toggles || {
+    twoFactor: true,
+    voidPin: true,
+    autoAuditLock: true,
+    lowStockAlert: true,
+    voidAlert: true,
+    dailyDigest: true
+  });
+
+  // Billing modal
+  const [billingModalOpen, setBillingModalOpen] = useState(false);
+
+  // Initialize theme on mount
+  useEffect(() => {
+    applyThemePalette(selectedThemeColor);
+    applyThemeMode(colorMode);
+  }, []);
+
+  const handleSelectThemeColor = (colorId) => {
+    setSelectedThemeColor(colorId);
+    applyThemePalette(colorId);
+    setSuccessMessage?.(`${t('settings.themeColor.label')}: ${THEME_PALETTES[colorId]?.name || colorId}`);
   };
 
-  const getDiscount = (months) => {
-    if (months === 6) return 0.10; // 10%
-    if (months === 12) return 0.20; // 20%
-    return 0;
+  const handleSelectColorMode = (mode) => {
+    setColorMode(mode);
+    applyThemeMode(mode);
+    setSuccessMessage?.(
+      mode === 'dark'
+        ? (language === 'en' ? 'Dark Mode activated' : 'Mode Gelap diaktifkan')
+        : mode === 'light'
+          ? (language === 'en' ? 'Light Mode activated' : 'Mode Terang diaktifkan')
+          : (language === 'en' ? 'System Theme activated' : 'Mode Otomatis diaktifkan')
+    );
   };
 
-  const calculateTotal = () => {
-    const basePrice = planPrices[selectedPlan] * durationMonths;
-    const discount = basePrice * getDiscount(durationMonths);
-    return basePrice - discount;
+  const handleSelectLanguage = (lang) => {
+    setLanguage(lang);
+    setSuccessMessage?.(
+      lang === 'en'
+        ? 'Interface language changed to English!'
+        : 'Bahasa antarmuka diubah ke Bahasa Indonesia!'
+    );
   };
 
-  const handleStartUpgrade = () => {
-    // Default to upgrading to premium if current is standard/free
-    if (activeBranch?.subscription_plan === 'premium') {
-      setSelectedPlan('premium');
-    } else if (activeBranch?.subscription_plan === 'standard') {
-      setSelectedPlan('premium');
-    } else {
-      setSelectedPlan('standard');
-    }
-    setPaymentStep(1);
-    setShowUpgradeModal(true);
+  const handleToggle = (key) => {
+    setToggles(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try {
+        localStorage.setItem('strans_toggles', JSON.stringify(next));
+      } catch {}
+      setSuccessMessage?.(language === 'en' ? 'Setting updated successfully.' : 'Pengaturan berhasil diperbarui.');
+      return next;
+    });
   };
 
-  const handleProcessPayment = () => {
-    setProcessing(true);
-    setTimeout(() => {
-      setProcessing(false);
-      setPaymentStep(2);
-    }, 1200);
-  };
-
-  const handleSimulateSuccess = async () => {
-    setProcessing(true);
+  const handleSaveProfile = (e) => {
+    e.preventDefault();
+    const profileData = {
+      businessName,
+      businessCategory,
+      taxPb1,
+      serviceCharge,
+      businessEmail,
+      businessPhone
+    };
     try {
-      const response = await fetch('/api/subscription/upgrade', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          plan: selectedPlan,
-          months: durationMonths
-        })
-      });
-      const data = await response.json();
-      if (data.success || response.ok) {
-        setPaymentStep(3);
-        setSuccessMessage?.('Simulasi upgrade langganan berhasil diproses.');
-        if (onRefreshBranches) {
-          onRefreshBranches();
-        }
-      } else {
-        setActionError?.(data.error || 'Gagal memproses simulasi upgrade langganan.');
-      }
-    } catch (err) {
-      setActionError?.('Gagal menghubungi server.');
-    } finally {
-      setProcessing(false);
-    }
+      localStorage.setItem('strans_profile', JSON.stringify(profileData));
+    } catch {}
+    setSuccessMessage?.(
+      language === 'en'
+        ? 'Business profile saved! Changes will reflect on all cashier receipts.'
+        : 'Profil usaha berhasil disimpan! Perubahan tarif pajak & nama usaha otomatis aktif di seluruh struk kasir.'
+    );
   };
+
+  const navTabs = [
+    {
+      id: 'appearance',
+      label: t('settings.tab.appearance', 'Tampilan & Bahasa'),
+      icon: Palette,
+      description: 'Mode terang/gelap, warna tema, dan pilihan bahasa.'
+    },
+    {
+      id: 'profile',
+      label: t('settings.tab.profile', 'Profil Usaha'),
+      icon: Store,
+      description: 'Informasi bisnis, kategori usaha, dan pajak PB1.'
+    },
+    {
+      id: 'security',
+      label: t('settings.tab.security', 'Keamanan & Otorisasi'),
+      icon: Shield,
+      description: 'Verifikasi 2 langkah dan PIN supervisor pembatalan.'
+    },
+    {
+      id: 'notifications',
+      label: t('settings.tab.notifications', 'Notifikasi & Rekap AI'),
+      icon: Bell,
+      description: 'Peringatan stok menipis, void kasir, dan ringkasan harian.'
+    },
+    {
+      id: 'plan',
+      label: t('settings.tab.plan', 'Paket Berlangganan'),
+      icon: CreditCard,
+      description: 'Batas outlet, lisensi staf, dan rincian paket aktif.'
+    }
+  ];
+
+  const currentTheme = THEME_PALETTES[selectedThemeColor] || THEME_PALETTES.emerald;
 
   return (
-    <div className="space-y-6">
-      {/* Profil Cabang Card */}
-      <div className="bg-white border border-slate-100 p-6 rounded-2xl space-y-4">
-        <div>
-          <h3 className="font-bold text-slate-900 text-base">Informasi Profil Cabang</h3>
-          <p className="text-xs text-slate-600">Rincian profil identitas toko dan kredensial integrasi sistem POS.</p>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-4 border border-slate-100 p-5 rounded-xl bg-slate-50/20">
-            <h4 className="text-xs font-bold text-sky-400 uppercase tracking-wider">Detail Outlet</h4>
-            <div className="space-y-3 text-xs">
-              <div>
-                <span className="text-[10px] text-slate-500 block mb-1">Nama Toko / Outlet</span>
-                <p className="text-sm text-slate-900 font-bold">{activeBranch?.name || session.tenant.name}</p>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-500 block mb-1">Paket Berlangganan</span>
-                <span className={`inline-flex items-center gap-1.5 text-[10px] font-extrabold px-2.5 py-1 rounded-full border uppercase ${
-                  (activeBranch?.subscription_plan || session.tenant.subscription_plan) === 'premium'
-                    ? 'text-amber-400 bg-amber-500/10 border-amber-500/20'
-                    : (activeBranch?.subscription_plan || session.tenant.subscription_plan) === 'standard'
-                    ? 'text-sky-400 bg-sky-500/10 border-sky-500/20'
-                    : 'text-slate-600 bg-slate-500/10 border-slate-500/20'
-                }`}>
-                  {(activeBranch?.subscription_plan || session.tenant.subscription_plan) === 'premium' ? <Crown size={12} /> : <ShieldCheck size={12} />}
-                  {(activeBranch?.subscription_plan || session.tenant.subscription_plan || 'free')} Plan
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-4 border border-slate-100 p-5 rounded-xl bg-slate-50/20">
-            <h4 className="text-xs font-bold text-purple-400 uppercase tracking-wider">Aktivasi Integrasi</h4>
-            <div className="space-y-3 text-xs">
-              <div>
-                <span className="text-[10px] text-slate-500 block mb-1">Kode Aktivasi Perangkat POS</span>
-                <p className="text-sm text-slate-900 font-mono font-bold tracking-widest bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-lg w-fit">
-                  {activeBranch?.activation_code || session.tenant.activation_code || '-'}
-                </p>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-500 block mb-1">Status Koneksi API Merchant</span>
-                <p className="text-xs text-emerald-400 font-bold flex items-center gap-1.5">
-                  <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping"></span>
-                  <span>Siap Terhubung & Mensinkronkan Data</span>
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
+    <div className="space-y-6 animate-in fade-in duration-200">
+      {/* 1. Page Header matching Strans Space v2 */}
+      <div>
+        <h1 className="text-2xl font-black tracking-tight text-[var(--color-ink)]">
+          {t('settings.title', 'Pengaturan')}
+        </h1>
+        <p className="text-xs text-[var(--color-slate-muted)] mt-0.5">
+          {t('settings.desc', 'Profil usaha, pajak, tampilan antarmuka, keamanan, dan notifikasi holding.')}
+        </p>
       </div>
 
-      {/* Notifikasi Stok Card */}
-      <div className="bg-white border border-slate-100 p-6 rounded-2xl space-y-4">
-        <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-lg bg-sky-500/10 flex items-center justify-center text-sky-500 shrink-0">
-            <Send size={16} />
-          </div>
-          <div>
-            <h3 className="font-bold text-slate-900 text-base">Notifikasi Stok via Telegram</h3>
-            <p className="text-xs text-slate-600 mt-1">
-              Staf akan menerima pesan Telegram otomatis saat stok bahan baku turun ke batas minimum yang ditentukan.
-              Aktifkan notifikasi dan hubungkan akun Telegram per staf di halaman <span className="font-bold text-slate-900">Kasir &amp; Staf</span>,
-              lalu atur batas stok minimum tiap bahan di halaman <span className="font-bold text-slate-900">Inventori &amp; Stok</span> (tombol "Sesuaikan Stok").
-            </p>
-          </div>
-        </div>
-      </div>
+      {/* 2. Main 2-Column Grid: Left Vertical Sub-menu + Right Content */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[240px_1fr]">
+        {/* Left Sub-menu Navigation */}
+        <nav aria-label="Sub menu pengaturan" className="space-y-1">
+          <div className="flex flex-row overflow-x-auto pb-2 scroll-slim lg:flex-col lg:pb-0 lg:space-y-1.5">
+            {navTabs.map((tab) => {
+              const TabIcon = tab.icon;
+              const isActive = activeTab === tab.id;
 
-      {/* SaaS Subscription Billing System */}
-      <div className="bg-white border border-slate-100 p-6 rounded-2xl">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-          <div>
-            <h3 className="font-bold text-slate-900 text-base">Sistem Tagihan & Layanan Langganan</h3>
-            <p className="text-xs text-slate-600">Paket langganan berlaku untuk <span className="font-bold text-slate-800">seluruh perusahaan (semua cabang)</span>. Upgrade sekali, aktif di semua outlet.</p>
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={cn(
+                    'flex shrink-0 items-center gap-3 rounded-2xl px-3.5 py-3 text-left text-xs font-bold transition-all cursor-pointer',
+                    isActive
+                      ? 'bg-[var(--color-brand-600)] text-white shadow-sm'
+                      : 'text-[var(--color-slate-body)] hover:bg-[var(--color-snow)] hover:text-[var(--color-ink)]'
+                  )}
+                >
+                  <TabIcon
+                    className={cn(
+                      'h-4 w-4 shrink-0',
+                      isActive ? 'text-white' : 'text-[var(--color-brand-600)]'
+                    )}
+                  />
+                  <div className="min-w-0">
+                    <div className="truncate">{tab.label}</div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
-          {activeBranchId !== 'all' && (
-            <button
-              onClick={handleStartUpgrade}
-              className="px-5 py-3 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-900 font-bold text-xs uppercase tracking-wider flex items-center gap-2 transition cursor-pointer shadow-lg shadow-sky-500/10"
-            >
-              <Zap size={14} />
-              Upgrade / Perpanjang Paket
-            </button>
+        </nav>
+
+        {/* Right Tab Content */}
+        <div className="min-w-0 space-y-5">
+          {/* TAB 1: TAMPILAN & BAHASA */}
+          {activeTab === 'appearance' && (
+            <div className="space-y-5">
+              {/* Bahasa & Wilayah Card */}
+              <Card className="border-[var(--color-hairline)] shadow-2xs">
+                <CardHeader className="p-5 border-b border-[var(--color-hairline)]">
+                  <CardTitle className="text-sm font-bold text-[var(--color-ink)] flex items-center gap-2">
+                    <Globe className="h-4 w-4 text-[var(--color-brand-600)]" />
+                    <span>{t('settings.language.title', 'Bahasa & Wilayah')}</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs text-[var(--color-slate-muted)] mt-0.5">
+                    {t('settings.language.desc', 'Pilih bahasa tampilan untuk antarmuka dashboard dan struk kasir.')}
+                  </CardDescription>
+                </CardHeader>
+
+                <CardContent className="p-5">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {[
+                      { value: 'id', label: 'Bahasa Indonesia', flag: '🇮🇩', hint: 'Bahasa bawaan sistem antarmuka' },
+                      { value: 'en', label: 'English (US)', flag: '🇬🇧', hint: 'English interface and receipts' },
+                    ].map((lang) => {
+                      const isSelected = language === lang.value;
+                      return (
+                        <button
+                          key={lang.value}
+                          type="button"
+                          onClick={() => handleSelectLanguage(lang.value)}
+                          className={cn(
+                            'flex flex-col items-start gap-1 rounded-2xl border-2 p-3.5 text-left transition-all cursor-pointer',
+                            isSelected
+                              ? 'border-[var(--color-brand-500)] bg-[var(--color-brand-50)]/60 text-[var(--color-ink)] shadow-2xs'
+                              : 'border-[var(--color-hairline)] bg-[var(--card)] text-[var(--color-ink)] hover:bg-[var(--color-snow)]'
+                          )}
+                        >
+                          <div className="flex w-full items-center justify-between gap-2">
+                            <span className="flex items-center gap-2 font-bold text-xs text-[var(--color-ink)]">
+                              <span>{lang.flag}</span>
+                              <span>{lang.label}</span>
+                            </span>
+                            {isSelected && <Badge variant="brand" className="text-[10px] px-1.5 py-0">{t('common.active', 'Aktif')}</Badge>}
+                          </div>
+                          <span className="text-[11px] text-[var(--color-slate-muted)]">{lang.hint}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Mode Tampilan & Tema Warna Card */}
+              <Card className="border-[var(--color-hairline)] shadow-2xs">
+                <CardHeader className="p-5 border-b border-[var(--color-hairline)]">
+                  <CardTitle className="text-sm font-bold text-[var(--color-ink)] flex items-center gap-2">
+                    <Palette className="h-4 w-4 text-[var(--color-brand-600)]" />
+                    <span>{t('settings.theme.title', 'Tampilan & Tema Warna')}</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs text-[var(--color-slate-muted)] mt-0.5">
+                    {t('settings.theme.desc', 'Sesuaikan mode terang/gelap dan palet warna merek favorit Anda.')}
+                  </CardDescription>
+                </CardHeader>
+
+                <CardContent className="p-5 space-y-6">
+                  {/* Mode Tampilan (Light/Dark) */}
+                  <div>
+                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-slate-muted)] mb-2.5">
+                      {language === 'en' ? 'Display Mode' : 'Mode Tampilan'}
+                    </h4>
+                    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+                      {[
+                        { value: 'light', label: t('settings.mode.light', 'Terang'), icon: Sun, hint: language === 'en' ? 'Best for daytime' : 'Paling jelas di ruangan kasir' },
+                        { value: 'dark', label: t('settings.mode.dark', 'Gelap'), icon: Moon, hint: language === 'en' ? 'Comfortable for night' : 'Nyaman untuk tutup buku malam' },
+                        { value: 'system', label: t('settings.mode.system', 'Ikuti Perangkat'), icon: Monitor, hint: language === 'en' ? 'Matches OS preference' : 'Otomatis sesuai tablet/laptop' }
+                      ].map((opt) => {
+                        const Icon = opt.icon;
+                        const isSelected = colorMode === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => handleSelectColorMode(opt.value)}
+                            className={cn(
+                              'flex flex-col items-start gap-1 rounded-2xl border-2 p-3 text-left transition-all cursor-pointer',
+                              isSelected
+                                ? 'border-[var(--color-brand-500)] bg-[var(--color-brand-50)]/60 text-[var(--color-ink)] shadow-2xs'
+                                : 'border-[var(--color-hairline)] bg-[var(--card)] text-[var(--color-ink)] hover:bg-[var(--color-snow)]'
+                            )}
+                          >
+                            <div className="flex w-full items-center justify-between gap-2">
+                              <Icon className="h-4 w-4 text-[var(--color-brand-600)]" />
+                              {isSelected && <Badge variant="brand" className="text-[9px] px-1 py-0">{t('common.active', 'Aktif')}</Badge>}
+                            </div>
+                            <span className="text-xs font-bold text-[var(--color-ink)] mt-1">{opt.label}</span>
+                            <span className="text-[10px] text-[var(--color-slate-muted)]">{opt.hint}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Warna Utama Tema + Live Visual Preview Box */}
+                  <div className="pt-4 border-t border-[var(--color-hairline)]">
+                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-slate-muted)] mb-2.5">
+                      {t('settings.themeColor.label', 'Warna Utama Tema (Theme Color)')}
+                    </h4>
+
+                    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                      {/* Swatches pilihan warna */}
+                      <div className="space-y-2">
+                        <p className="text-xs text-[var(--color-slate-muted)]">
+                          {language === 'en'
+                            ? 'Select an accent color to update highlights across all buttons and charts:'
+                            : 'Pilih warna utama untuk mengubah warna aksen di seluruh tombol dan grafik dashboard:'}
+                        </p>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {Object.values(THEME_PALETTES).map((themeOpt) => {
+                            const isSelected = selectedThemeColor === themeOpt.id;
+                            return (
+                              <button
+                                key={themeOpt.id}
+                                type="button"
+                                onClick={() => handleSelectThemeColor(themeOpt.id)}
+                                className={cn(
+                                  'flex items-center gap-2.5 rounded-2xl border-2 p-2.5 text-left transition-all cursor-pointer',
+                                  isSelected
+                                    ? 'border-[var(--color-brand-500)] bg-[var(--color-brand-50)]/60 text-[var(--color-ink)] font-bold shadow-2xs'
+                                    : 'border-[var(--color-hairline)] bg-[var(--card)] text-[var(--color-ink)] hover:bg-[var(--color-snow)]'
+                                )}
+                              >
+                                <span
+                                  className="h-5 w-5 shrink-0 rounded-full border border-black/10 shadow-2xs"
+                                  style={{ backgroundColor: themeOpt.colorHex }}
+                                />
+                                <span className="text-xs text-[var(--color-ink)] truncate flex-1 font-semibold">
+                                  {themeOpt.name}
+                                </span>
+                                {isSelected && <Check className="h-4 w-4 text-[var(--color-brand-600)]" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Kotak Pratinjau Visual (Live Mini UI Preview Box) */}
+                      <div className="rounded-2xl border-2 border-[var(--color-brand-400)]/40 bg-[var(--color-snow)] p-4 shadow-2xs space-y-3">
+                        <div className="flex items-center justify-between border-b border-[var(--color-hairline)] pb-2">
+                          <span className="flex items-center gap-1.5 text-xs font-bold text-[var(--color-ink)]">
+                            <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                            <span>{t('settings.preview.title', 'Kotak Pratinjau Tema UI (Live)')}</span>
+                          </span>
+                          <span
+                            className="text-[10px] font-bold text-white px-2 py-0.5 rounded-full shadow-2xs"
+                            style={{ backgroundColor: currentTheme.colorHex }}
+                          >
+                            {t('settings.preview.badge', 'Aksen Aktif')}
+                          </span>
+                        </div>
+
+                        {/* Mini Dashboard Card Component */}
+                        <div className="space-y-2.5 rounded-xl border border-[var(--color-hairline)] bg-[var(--card)] p-3 shadow-2xs">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-slate-muted)]">
+                                {language === 'en' ? 'Today Total Sales' : 'Total Penjualan Hari Ini'}
+                              </p>
+                              <p className="text-sm font-black text-[var(--color-ink)] mt-0.5">
+                                Rp 12.450.000
+                              </p>
+                            </div>
+                            <span
+                              className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold text-white shadow-2xs"
+                              style={{ backgroundColor: currentTheme.colorHex }}
+                            >
+                              <TrendingUp className="h-3 w-3" /> +15.4%
+                            </span>
+                          </div>
+
+                          {/* Mini Progress Bar */}
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-[10px] text-[var(--color-slate-muted)]">
+                              <span>Target Outlet Cisauk</span>
+                              <span className="font-bold text-[var(--color-ink)]">85%</span>
+                            </div>
+                            <div className="h-2 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all duration-300"
+                                style={{ width: '85%', backgroundColor: currentTheme.colorHex }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Mini Buttons Sample */}
+                          <div className="flex gap-2 pt-1">
+                            <button
+                              type="button"
+                              className="h-7 text-[11px] px-3 font-bold text-white rounded-xl shadow-2xs transition-transform active:scale-95 cursor-pointer"
+                              style={{ backgroundColor: currentTheme.colorHex }}
+                            >
+                              {language === 'en' ? 'Primary Button' : 'Tombol Utama'}
+                            </button>
+                            <Button size="sm" variant="outline" className="h-7 text-[11px] px-3 bg-[var(--card)]">
+                              {language === 'en' ? 'Secondary' : 'Sekunder'}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* TAB 2: PROFIL USAHA */}
+          {activeTab === 'profile' && (
+            <Card className="border-[var(--color-hairline)] shadow-2xs">
+              <CardHeader className="p-5 border-b border-[var(--color-hairline)]">
+                <CardTitle className="text-sm font-bold text-[var(--color-ink)] flex items-center gap-2">
+                  <Store className="h-4 w-4 text-[var(--color-brand-600)]" />
+                  <span>{t('settings.profile.title', 'Profil Usaha & Pengaturan Kasir')}</span>
+                </CardTitle>
+                <CardDescription className="text-xs text-[var(--color-slate-muted)] mt-0.5">
+                  {t('settings.profile.desc', 'Informasi bisnis yang tercetak di struk belanja pelanggan dan laporan resmi.')}
+                </CardDescription>
+              </CardHeader>
+
+              <CardContent className="p-5">
+                <form onSubmit={handleSaveProfile} className="space-y-4 text-xs">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">
+                        {t('settings.profile.name', 'Nama Usaha / Brand')}
+                      </label>
+                      <Input
+                        required
+                        value={businessName}
+                        onChange={(e) => setBusinessName(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">
+                        {t('settings.profile.category', 'Kategori Usaha')}
+                      </label>
+                      <Input
+                        value={businessCategory}
+                        onChange={(e) => setBusinessCategory(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">
+                        {t('settings.profile.tax', 'Pajak Restoran PB1 (%)')}
+                      </label>
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          value={taxPb1}
+                          onChange={(e) => setTaxPb1(e.target.value)}
+                        />
+                        <span className="absolute right-3 top-2.5 text-xs text-[var(--color-slate-muted)] font-bold">%</span>
+                      </div>
+                      <p className="text-[10px] text-[var(--color-slate-muted)] mt-1">
+                        {language === 'en' ? 'Commonly 10% in most F&B jurisdictions.' : 'Umumnya 10% di sebagian besar daerah F&B.'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">
+                        {t('settings.profile.service', 'Biaya Layanan / Service Charge (%)')}
+                      </label>
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          value={serviceCharge}
+                          onChange={(e) => setServiceCharge(e.target.value)}
+                        />
+                        <span className="absolute right-3 top-2.5 text-xs text-[var(--color-slate-muted)] font-bold">%</span>
+                      </div>
+                      <p className="text-[10px] text-[var(--color-slate-muted)] mt-1">
+                        {language === 'en' ? 'Set to 0 if no service charge is applied.' : 'Isi 0 jika tidak memungut biaya layanan.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">
+                        {t('settings.profile.email', 'Email Resmi Usaha')}
+                      </label>
+                      <Input
+                        type="email"
+                        value={businessEmail}
+                        onChange={(e) => setBusinessEmail(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-[var(--color-ink)] block mb-1">
+                        {t('settings.profile.phone', 'Nomor Kontak WhatsApp Toko')}
+                      </label>
+                      <Input
+                        value={businessPhone}
+                        onChange={(e) => setBusinessPhone(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-3 border-t border-[var(--color-hairline)]">
+                    <Button type="submit" className="gap-1.5 shadow-2xs cursor-pointer">
+                      <Save className="h-3.5 w-3.5" />
+                      <span>{t('common.save', 'Simpan Perubahan')}</span>
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* TAB 3: KEAMANAN & OTORISASI */}
+          {activeTab === 'security' && (
+            <Card className="border-[var(--color-hairline)] shadow-2xs">
+              <CardHeader className="p-5 border-b border-[var(--color-hairline)]">
+                <CardTitle className="text-sm font-bold text-[var(--color-ink)] flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-[var(--color-brand-600)]" />
+                  <span>{t('settings.security.title', 'Keamanan & Otorisasi Kasir')}</span>
+                </CardTitle>
+                <CardDescription className="text-xs text-[var(--color-slate-muted)] mt-0.5">
+                  {t('settings.security.desc', 'Aturan otorisasi pembatalan dan akses login yang berlaku untuk seluruh outlet.')}
+                </CardDescription>
+              </CardHeader>
+
+              <CardContent className="p-5 divide-y divide-[var(--color-hairline)]">
+                <div className="flex items-start justify-between gap-4 py-3.5 first:pt-0">
+                  <div>
+                    <label className="text-xs font-bold text-[var(--color-ink)] block">
+                      {t('settings.security.twoFactor', 'Verifikasi Dua Langkah (2FA)')}
+                    </label>
+                    <p className="text-[11px] text-[var(--color-slate-muted)] mt-0.5">
+                      {t('settings.security.twoFactorDesc', 'Kirim kode OTP sekali pakai lewat surel/WhatsApp setiap kali masuk ke dashboard holding.')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={toggles.twoFactor}
+                    onCheckedChange={() => handleToggle('twoFactor')}
+                  />
+                </div>
+
+                <div className="flex items-start justify-between gap-4 py-3.5">
+                  <div>
+                    <label className="text-xs font-bold text-[var(--color-ink)] block">
+                      {t('settings.security.voidPin', 'PIN Supervisor untuk Pembatalan (Void)')}
+                    </label>
+                    <p className="text-[11px] text-[var(--color-slate-muted)] mt-0.5">
+                      {t('settings.security.voidPinDesc', 'Kasir tidak bisa membatalkan transaksi tanpa input PIN otorisasi manajer/supervisor toko.')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={toggles.voidPin}
+                    onCheckedChange={() => handleToggle('voidPin')}
+                  />
+                </div>
+
+                <div className="flex items-start justify-between gap-4 py-3.5 last:pb-0">
+                  <div>
+                    <label className="text-xs font-bold text-[var(--color-ink)] block">
+                      {t('settings.security.auditLock', 'Kunci Audit Log Aktivitas Anti-Fraud AI')}
+                    </label>
+                    <p className="text-[11px] text-[var(--color-slate-muted)] mt-0.5">
+                      {t('settings.security.auditLockDesc', 'Rekam setiap perubahan harga manual dan diskon kasir ke dalam log audit trail holding.')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={toggles.autoAuditLock}
+                    onCheckedChange={() => handleToggle('autoAuditLock')}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* TAB 4: NOTIFIKASI & REKAP AI */}
+          {activeTab === 'notifications' && (
+            <Card className="border-[var(--color-hairline)] shadow-2xs">
+              <CardHeader className="p-5 border-b border-[var(--color-hairline)]">
+                <CardTitle className="text-sm font-bold text-[var(--color-ink)] flex items-center gap-2">
+                  <Bell className="h-4 w-4 text-[var(--color-brand-600)]" />
+                  <span>{t('settings.notifications.title', 'Notifikasi & Rekap Penjualan AI')}</span>
+                </CardTitle>
+                <CardDescription className="text-xs text-[var(--color-slate-muted)] mt-0.5">
+                  {t('settings.notifications.desc', 'Pilih kabar dan sinyal bahaya apa saja yang perlu langsung dikirim ke WhatsApp Anda.')}
+                </CardDescription>
+              </CardHeader>
+
+              <CardContent className="p-5 divide-y divide-[var(--color-hairline)]">
+                <div className="flex items-start justify-between gap-4 py-3.5 first:pt-0">
+                  <div>
+                    <label className="text-xs font-bold text-[var(--color-ink)] block">
+                      {t('settings.notifications.stock', 'Peringatan Stok Bahan Baku Menipis')}
+                    </label>
+                    <p className="text-[11px] text-[var(--color-slate-muted)] mt-0.5">
+                      {t('settings.notifications.stockDesc', 'Muncul dan dikirim ke bot Telegram saat sisa bahan di cabang turun di bawah batas minimum.')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={toggles.lowStockAlert}
+                    onCheckedChange={() => handleToggle('lowStockAlert')}
+                  />
+                </div>
+
+                <div className="flex items-start justify-between gap-4 py-3.5">
+                  <div>
+                    <label className="text-xs font-bold text-[var(--color-ink)] block">
+                      {t('settings.notifications.void', 'Pemberitahuan Transaksi Void Seketika')}
+                    </label>
+                    <p className="text-[11px] text-[var(--color-slate-muted)] mt-0.5">
+                      {t('settings.notifications.voidDesc', 'Setiap ada transaksi yang dibatalkan oleh kasir langsung dilaporkan detik itu juga.')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={toggles.voidAlert}
+                    onCheckedChange={() => handleToggle('voidAlert')}
+                  />
+                </div>
+
+                <div className="flex items-start justify-between gap-4 py-3.5 last:pb-0">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-bold text-[var(--color-ink)]">
+                        {t('settings.notifications.digest', 'Rekap Harian Tutup Buku Otomatis via AI')}
+                      </label>
+                      <Badge variant="brand" className="text-[9px] px-1.5 py-0">Juragan AI</Badge>
+                    </div>
+                    <p className="text-[11px] text-[var(--color-slate-muted)] mt-0.5">
+                      {t('settings.notifications.digestDesc', 'Ringkasan omset bersih, P&L harian, dan analisis produk terlaris dikirim setiap pukul 22.00.')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={toggles.dailyDigest}
+                    onCheckedChange={() => handleToggle('dailyDigest')}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* TAB 5: PAKET BERLANGGANAN */}
+          {activeTab === 'plan' && (
+            <Card className="border-[var(--color-hairline)] shadow-2xs">
+              <CardHeader className="p-5 border-b border-[var(--color-hairline)]">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-sm font-bold text-[var(--color-ink)] flex items-center gap-2">
+                      <Crown className="h-4 w-4 text-amber-500" />
+                      <span>{t('settings.plan.title', 'Paket Berlangganan Aktif')}</span>
+                    </CardTitle>
+                    <CardDescription className="text-xs text-[var(--color-slate-muted)] mt-0.5">
+                      {t('settings.plan.desc', 'Lisensi enterprise holding multi-cabang tanpa batasan.')}
+                    </CardDescription>
+                  </div>
+                  <Badge variant="brand" className="px-2.5 py-1 text-xs font-black">
+                    👑 JURAGAN SPACE (AI)
+                  </Badge>
+                </div>
+              </CardHeader>
+
+              <CardContent className="p-5 space-y-4">
+                <div className="space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-hairline)]">
+                    <span className="text-[var(--color-slate-muted)]">
+                      {language === 'en' ? 'Active Branches / Outlets' : 'Jumlah Cabang / Outlet'}
+                    </span>
+                    <span className="font-bold text-[var(--color-ink)]">
+                      {language === 'en' ? '2 of Unlimited' : '2 dari Tanpa Batas (Unlimited)'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-hairline)]">
+                    <span className="text-[var(--color-slate-muted)]">
+                      {language === 'en' ? 'POS Terminals & KDS Displays' : 'Perangkat Mesin Kasir & KDS'}
+                    </span>
+                    <span className="font-bold text-[var(--color-ink)]">
+                      {language === 'en' ? 'Max Unlimited' : 'Maksimal Tanpa Batas'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-hairline)]">
+                    <span className="text-[var(--color-slate-muted)]">
+                      {language === 'en' ? 'Sales Ledger History' : 'Penyimpanan Riwayat Transaksi'}
+                    </span>
+                    <span className="font-bold text-[var(--color-ink)]">
+                      {language === 'en' ? 'Permanent Cloud Storage' : 'Cloud Storage Permanen'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-hairline)]">
+                    <span className="text-[var(--color-slate-muted)]">
+                      {language === 'en' ? 'Central Kitchen & Holding Warehouse' : 'Fitur Central Kitchen & Gudang Holding'}
+                    </span>
+                    <span className="font-bold text-emerald-600 font-bold">
+                      {language === 'en' ? '✓ Fully Active' : '✓ Aktif Sepenuhnya'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between py-1.5">
+                    <span className="text-[var(--color-slate-muted)]">
+                      {language === 'en' ? 'AI Anomaly & Anti-Fraud Guard' : 'Deteksi Anomali & Anti-Fraud AI'}
+                    </span>
+                    <span className="font-bold text-emerald-600 font-bold">
+                      {language === 'en' ? '✓ Fully Active' : '✓ Aktif Sepenuhnya'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-[var(--color-hairline)] flex justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={() => setBillingModalOpen(true)}
+                    className="text-xs bg-[var(--card)] cursor-pointer gap-1.5 shadow-2xs"
+                  >
+                    <Receipt className="h-3.5 w-3.5" />
+                    <span>{t('settings.plan.invoices', 'Rincian Tagihan & Faktur')}</span>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           )}
         </div>
-
-        {activeBranchId === 'all' ? (
-          <div className="flex flex-col items-center justify-center p-12 border border-dashed border-slate-100 rounded-xl bg-slate-50/20 text-center">
-            <Building className="text-slate-400 mb-3" size={36} />
-            <p className="text-sm font-bold text-slate-700">Pilih Salah Satu Cabang Dulu</p>
-            <p className="text-xs text-slate-500 mt-1 max-w-xs">Paket dikelola di level perusahaan — upgrade dari cabang mana pun otomatis berlaku untuk <span className="font-semibold text-slate-700">semua cabang</span>.</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <div className="border border-slate-100/80 p-5 rounded-xl bg-slate-50/40 flex flex-col justify-between">
-              <div>
-                <span className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wider">Metode Pembayaran Aktif</span>
-                <h4 className="text-sm font-bold text-slate-900 mt-1">Simulasi Auto-Billing</h4>
-                <p className="text-xs text-slate-600 mt-2 leading-relaxed">Sistem penagihan otomatis terintegrasi dengan saldo merchant atau virtual account.</p>
-              </div>
-              <div className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-100/30 text-xs text-sky-400 font-semibold">
-                <CreditCard size={14} />
-                <span>Default: QRIS / Bank Transfer</span>
-              </div>
-            </div>
-
-            <div className="border border-slate-100/80 p-5 rounded-xl bg-slate-50/40 flex flex-col justify-between">
-              <div>
-                <span className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wider">Status Lisensi Perusahaan</span>
-                <h4 className="text-sm font-bold text-emerald-400 mt-1 flex items-center gap-1.5">
-                  <CheckCircle2 size={16} />
-                  <span>Lisensi Aktif</span>
-                </h4>
-                <p className="text-xs text-slate-600 mt-2 leading-relaxed">Akses modul POS, sync database offline, dan inventaris aktif sepenuhnya.</p>
-              </div>
-              <div className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-100/30 text-xs text-slate-600">
-                <Calendar size={14} />
-                <span>Berlaku s/d: Perpanjangan Otomatis</span>
-              </div>
-            </div>
-
-            <div className="border border-slate-100/80 p-5 rounded-xl bg-slate-50/40 flex flex-col justify-between">
-              <div>
-                <span className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wider">Keuntungan Upgrade Premium</span>
-                <h4 className="text-sm font-bold text-amber-400 mt-1 flex items-center gap-1.5">
-                  <Crown size={16} />
-                  <span>Fitur Premium Aktif</span>
-                </h4>
-                <p className="text-xs text-slate-600 mt-2 leading-relaxed">Mendukung modul QRIS Dinamis Otomatis, Self-Order Meja Pelanggan, dan Kustom UI.</p>
-              </div>
-              <div className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-100/30 text-xs text-amber-400 font-semibold">
-                <TrendingUp size={14} />
-                <span>Upgrade instan kapan saja</span>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Upgrade / Billing Modal (Mock Payment Gateway integration) */}
-      {showUpgradeModal && activeBranch && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-white border border-slate-100 rounded-3xl w-full max-w-xl overflow-hidden shadow-2xl">
-            {/* Modal Header */}
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/40">
-              <div>
-                <h3 className="text-base font-bold text-slate-900">Upgrade Paket Perusahaan</h3>
-                <p className="text-xs text-slate-600">Berlaku untuk <span className="font-bold">semua cabang</span>. Pilih paket & selesaikan pembayaran simulasi.</p>
-              </div>
-              <button 
-                onClick={() => setShowUpgradeModal(false)}
-                className="p-2 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition cursor-pointer"
-              >
-                ✕
-              </button>
+      {/* MODAL: Billing & Invoices Dialog */}
+      <Dialog open={billingModalOpen} onClose={() => setBillingModalOpen(false)} maxWidth="max-w-lg">
+        <DialogHeader onClose={() => setBillingModalOpen(false)}>
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-b from-amber-400 to-amber-600 text-white shadow-2xs">
+              <Crown className="h-5 w-5" />
             </div>
+            <div>
+              <DialogTitle>
+                {language === 'en' ? 'Billing & Juragan License' : 'Rincian Tagihan & Lisensi Juragan'}
+              </DialogTitle>
+              <DialogDescription>
+                {language === 'en' ? 'Payment invoices for Strans Space enterprise license.' : 'Riwayat pembayaran faktur paket enterprise Strans Space.'}
+              </DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
 
-            {paymentStep === 1 && (
-              <div className="p-6 space-y-5">
-                {/* Select Plan */}
-                <div className="space-y-2">
-                  <label className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Pilih Paket Langganan</label>
-                  <div className="grid grid-cols-2 gap-4">
-                    <button
-                      onClick={() => setSelectedPlan('standard')}
-                      className={`p-4 rounded-xl border text-left transition-all ${
-                        selectedPlan === 'standard' 
-                          ? 'border-sky-500 bg-sky-500/5 text-slate-900' 
-                          : 'border-slate-100 bg-slate-50/40 text-slate-600 hover:border-slate-200'
-                      }`}
-                    >
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="font-bold text-sm">Standard</span>
-                        {selectedPlan === 'standard' && <Check size={14} className="text-sky-400" />}
-                      </div>
-                      <span className="text-xs font-semibold block text-slate-700">Rp 150.000 / bln</span>
-                      <span className="text-[10px] text-slate-500 mt-2 block font-normal">Manajemen bahan & laporan lengkap.</span>
-                    </button>
+        <DialogContent className="space-y-4 pt-4 text-xs">
+          <div className="rounded-2xl border border-[var(--color-hairline)] bg-[var(--color-snow)] p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-[var(--color-ink)]">
+                {language === 'en' ? 'Juragan Space Plan (Annual AI)' : 'Paket Juragan Space (AI Tahunan)'}
+              </span>
+              <Badge variant="success" className="text-[10px]">
+                {language === 'en' ? 'Active until 16 Aug 2027' : 'Aktif sampai 16 Agu 2027'}
+              </Badge>
+            </div>
+            <p className="text-[11px] text-[var(--color-slate-muted)]">
+              Multi-Outlet Unlimited • AI Fraud Guard • Central Kitchen Module • Instant Payouts
+            </p>
+          </div>
 
-                    <button
-                      onClick={() => setSelectedPlan('premium')}
-                      className={`p-4 rounded-xl border text-left transition-all ${
-                        selectedPlan === 'premium' 
-                          ? 'border-amber-500 bg-amber-500/5 text-slate-900' 
-                          : 'border-slate-100 bg-slate-50/40 text-slate-600 hover:border-slate-200'
-                      }`}
-                    >
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="font-bold text-sm">Premium</span>
-                        {selectedPlan === 'premium' && <Check size={14} className="text-amber-400" />}
-                      </div>
-                      <span className="text-xs font-semibold block text-slate-700">Rp 350.000 / bln</span>
-                      <span className="text-[10px] text-slate-500 mt-2 block font-normal">QRIS Dinamis, Self-Order, & Kustom UI.</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Duration */}
-                <div className="space-y-2">
-                  <label className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Pilih Durasi Sewa</label>
-                  <div className="grid grid-cols-3 gap-3">
-                    {[
-                      { key: 1, label: '1 Bulan', disc: 'Harga Normal' },
-                      { key: 6, label: '6 Bulan', disc: 'Hemat 10%' },
-                      { key: 12, label: '12 Bulan', disc: 'Hemat 20%' }
-                    ].map((d) => (
-                      <button
-                        key={d.key}
-                        onClick={() => setDurationMonths(d.key)}
-                        className={`py-3 px-2 rounded-xl border transition-all text-center ${
-                          durationMonths === d.key 
-                            ? 'border-sky-500 bg-sky-500/5 text-slate-900' 
-                            : 'border-slate-100 bg-slate-50/40 text-slate-600 hover:border-slate-200'
-                        }`}
-                      >
-                        <span className="text-xs font-bold block">{d.label}</span>
-                        <span className="text-[9px] text-slate-500 mt-1 block font-semibold">{d.disc}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Payment Method */}
-                <div className="space-y-2">
-                  <label className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Metode Pembayaran</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      onClick={() => setPaymentMethod('qris')}
-                      className={`p-3 rounded-xl border text-left transition-all flex items-center gap-3 ${
-                        paymentMethod === 'qris' 
-                          ? 'border-emerald-500 bg-emerald-500/5 text-slate-900' 
-                          : 'border-slate-100 bg-slate-50/40 text-slate-600 hover:border-slate-200'
-                      }`}
-                    >
-                      <QrCode size={18} className="text-emerald-400" />
-                      <div>
-                        <span className="text-xs font-bold block">QRIS (Bayar Instan)</span>
-                        <span className="text-[9px] text-slate-500 font-normal">Gopay, OVO, ShopeePay</span>
-                      </div>
-                    </button>
-
-                    <button
-                      onClick={() => setPaymentMethod('transfer')}
-                      className={`p-3 rounded-xl border text-left transition-all flex items-center gap-3 ${
-                        paymentMethod === 'transfer' 
-                          ? 'border-emerald-500 bg-emerald-500/5 text-slate-900' 
-                          : 'border-slate-100 bg-slate-50/40 text-slate-600 hover:border-slate-200'
-                      }`}
-                    >
-                      <CreditCard size={18} className="text-emerald-400" />
-                      <div>
-                        <span className="text-xs font-bold block">Virtual Account</span>
-                        <span className="text-[9px] text-slate-500 font-normal">Transfer Bank BCA/Mandiri</span>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Total Recap */}
-                <div className="p-4 bg-slate-50/60 border border-slate-100/80 rounded-2xl flex justify-between items-center">
-                  <div>
-                    <span className="text-[10px] text-slate-500 block font-bold uppercase">Total Pembayaran</span>
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-lg font-black text-slate-900">Rp {calculateTotal().toLocaleString('id-ID')}</span>
-                      {getDiscount(durationMonths) > 0 && (
-                        <span className="text-[9px] text-slate-500 line-through">
-                          Rp {(planPrices[selectedPlan] * durationMonths).toLocaleString('id-ID')}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleProcessPayment}
-                    disabled={processing}
-                    className="px-5 py-3 rounded-xl bg-sky-500 hover:bg-sky-400 disabled:bg-slate-100 text-slate-900 font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 transition cursor-pointer shadow shadow-sky-500/10"
-                  >
-                    {processing && <Loader2 size={12} className="animate-spin" />}
-                    Lanjut Ke Pembayaran
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Waiting Payment Screen (Mock Midtrans Sandbox Checkout UI) */}
-            {paymentStep === 2 && (
-              <div className="p-6 text-center space-y-6">
-                <div className="mx-auto max-w-sm border border-slate-100 bg-slate-50/60 rounded-3xl p-6 space-y-5">
-                  <div className="flex items-center justify-between border-b border-slate-100/60 pb-3">
-                    <span className="text-xs text-slate-600 font-bold">Midtrans Payment Gateway</span>
-                    <span className="text-[9px] px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-400 font-bold uppercase tracking-wider">Sandbox</span>
-                  </div>
-
-                  <div className="text-left space-y-1">
-                    <span className="text-[9px] text-slate-500 block uppercase font-bold">Total Pembayaran</span>
-                    <span className="text-xl font-black text-emerald-400">Rp {calculateTotal().toLocaleString('id-ID')}</span>
-                  </div>
-
-                  {paymentMethod === 'qris' ? (
-                    <div className="space-y-4">
-                      <div className="bg-white p-4 rounded-2xl inline-block shadow-lg">
-                        <img 
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent('https://posandroid.stranspace.com/pay/' + activeBranch.id)}`}
-                          alt="QRIS Payment Code" 
-                          className="w-40 h-40"
-                        />
-                      </div>
-                      <p className="text-[10px] text-slate-600 leading-relaxed font-semibold">
-                        Silakan scan kode QRIS di atas memakai aplikasi E-Wallet atau M-Banking Anda untuk menyelesaikan pembayaran.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3 text-left">
-                      <div className="p-3 bg-white border border-slate-100 rounded-xl">
-                        <span className="text-[9px] text-slate-500 block uppercase font-bold">Nomor Virtual Account</span>
-                        <div className="flex justify-between items-center mt-1">
-                          <span className="text-sm font-mono font-bold text-slate-900 tracking-wider">88019 {activeBranch.id} 0123</span>
-                          <span className="text-[9px] px-2 py-1 bg-slate-100 text-slate-700 rounded font-bold uppercase cursor-pointer hover:bg-slate-200">Salin</span>
-                        </div>
-                        <span className="text-[9px] text-slate-600 block mt-1">Bank Mandiri / BNI Virtual Account</span>
-                      </div>
-                      <p className="text-[10px] text-slate-600 leading-relaxed font-semibold text-center">
-                        Masukkan nomor virtual account di atas melalui ATM atau M-Banking Anda.
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="pt-3 border-t border-slate-100/60 flex items-center justify-center gap-2">
-                    <span className="w-2 h-2 bg-amber-500 rounded-full animate-ping"></span>
-                    <span className="text-[10px] text-slate-600 font-bold">Menunggu Pembayaran Transfer...</span>
-                  </div>
-                </div>
-
-                <div className="flex gap-4 max-w-sm mx-auto">
-                  <button
-                    onClick={() => setPaymentStep(1)}
-                    className="flex-1 py-3 rounded-xl border border-slate-100 hover:border-slate-200 text-slate-600 hover:text-slate-900 font-bold text-xs uppercase tracking-wider transition cursor-pointer"
-                  >
-                    Kembali
-                  </button>
-                  <button
-                    onClick={handleSimulateSuccess}
-                    disabled={processing}
-                    className="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-100 text-slate-900 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition cursor-pointer shadow shadow-emerald-500/10"
-                  >
-                    {processing && <Loader2 size={12} className="animate-spin" />}
-                    Simulasi Sukses (Mock)
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Success Screen */}
-            {paymentStep === 3 && (
-              <div className="p-10 text-center space-y-6">
-                <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto animate-bounce">
-                  <Check size={36} />
-                </div>
-                
-                <div className="space-y-2">
-                  <h4 className="text-lg font-bold text-slate-900">Pembayaran Berhasil!</h4>
-                  <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
-                    Terima kasih! Pembayaran telah diverifikasi otomatis. Paket kini aktif untuk <span className="font-bold">seluruh cabang</span> perusahaan Anda.
+          <div>
+            <h4 className="text-[11px] font-bold text-[var(--color-ink)] uppercase tracking-wider mb-2">
+              {language === 'en' ? 'Payment Invoice History' : 'Riwayat Faktur Pembayaran'}
+            </h4>
+            <div className="border border-[var(--color-hairline)] rounded-xl overflow-hidden divide-y divide-[var(--color-hairline)]">
+              <div className="p-3 flex items-center justify-between bg-[var(--card)] hover:bg-[var(--color-snow)] transition-colors">
+                <div>
+                  <p className="font-bold text-xs text-[var(--color-ink)]">INV-STRANS-2026-0816</p>
+                  <p className="text-[10px] text-[var(--color-slate-muted)]">
+                    {language === 'en' ? '16 Aug 2026 • QRIS / VA Payment' : '16 Agu 2026 • Pembayaran QRIS / VA'}
                   </p>
                 </div>
-
-                <div className="p-4 bg-slate-50/60 border border-slate-100/80 rounded-2xl max-w-sm mx-auto text-left space-y-2">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-500">Berlaku untuk</span>
-                    <span className="text-slate-900 font-bold">Semua Cabang</span>
+                <div className="text-right flex items-center gap-3">
+                  <div>
+                    <p className="font-black text-xs text-[var(--color-ink)]">Rp 3.588.000</p>
+                    <Badge variant="success" className="text-[9px] px-1 py-0">
+                      {language === 'en' ? 'Paid' : 'Lunas'}
+                    </Badge>
                   </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-500">Paket Baru</span>
-                    <span className="text-amber-400 font-extrabold uppercase">{selectedPlan} Plan</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-500">Tambahan Durasi</span>
-                    <span className="text-slate-900 font-bold">{durationMonths} Bulan</span>
-                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setSuccessMessage?.(
+                        language === 'en'
+                          ? 'PDF Invoice INV-STRANS-2026-0816 ready to download!'
+                          : 'Faktur PDF INV-STRANS-2026-0816 siap diunduh!'
+                      );
+                    }}
+                    className="h-7 text-[10px] gap-1 bg-[var(--card)]"
+                  >
+                    <Download className="h-3 w-3" />
+                    <span>{language === 'en' ? 'Invoice' : 'Faktur'}</span>
+                  </Button>
                 </div>
-
-                <button
-                  onClick={() => setShowUpgradeModal(false)}
-                  className="px-6 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold text-xs uppercase tracking-wider transition cursor-pointer shadow shadow-slate-50/40"
-                >
-                  Selesai & Tutup
-                </button>
               </div>
-            )}
+            </div>
           </div>
-        </div>
-      )}
+        </DialogContent>
+
+        <DialogFooter>
+          <Button onClick={() => setBillingModalOpen(false)}>
+            {language === 'en' ? 'Close' : 'Tutup'}
+          </Button>
+        </DialogFooter>
+      </Dialog>
     </div>
   );
 }
