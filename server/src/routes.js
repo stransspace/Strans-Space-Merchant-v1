@@ -82,11 +82,93 @@ const verifyCashierToken = (token) => {
 // Durasi trial paket FREE (hari) dihitung dari tanggal daftar (companies.created_at).
 const FREE_TRIAL_DAYS = 14
 
+// ==========================================================================
+// KONFIGURASI PAKET LANGGANAN — single source of truth, selaras dgn halaman
+// harga publik (strans-space.com/#harga). Tier bersifat KUMULATIF: tier lebih
+// tinggi otomatis mewarisi semua batas/fitur tier di bawahnya.
+// `aliases` menampung nilai lama di kolom companies/tenants.subscription_plan
+// supaya tenant existing tidak mendadak terkunci saat tier baru diluncurkan —
+// jangan hapus alias tanpa migrasi data terlebih dahulu.
+// ==========================================================================
+const PLAN_CONFIG = [
+  {
+    slug: 'rintis',
+    rank: 0,
+    label: 'Rintis Space',
+    aliases: ['free', 'basic', 'starter', ''],
+    branchLimit: 1,
+    cashierLimit: 1,
+    menuItemLimit: 20,
+    monthlyPrice: 0, // gratis — tidak lewat jalur checkout Midtrans
+  },
+  {
+    slug: 'toko',
+    rank: 1,
+    label: 'Toko Space',
+    aliases: [],
+    branchLimit: 1,
+    cashierLimit: 3,
+    menuItemLimit: null, // unlimited
+    monthlyPrice: 47000,
+  },
+  {
+    slug: 'cabang',
+    rank: 2,
+    label: 'Cabang Space',
+    aliases: ['standard'],
+    branchLimit: 3,
+    cashierLimit: 10,
+    menuItemLimit: null,
+    monthlyPrice: 143000,
+  },
+  {
+    slug: 'juragan',
+    rank: 3,
+    label: 'Juragan Space (AI)',
+    aliases: ['premium', 'enterprise'],
+    branchLimit: null, // unlimited (dijual sbg "15+ cabang")
+    cashierLimit: null,
+    menuItemLimit: null,
+    monthlyPrice: 279000,
+  },
+]
+
+const PLAN_BY_SLUG = Object.fromEntries(PLAN_CONFIG.map((p) => [p.slug, p]))
+const PLAN_ALIAS_TO_SLUG = PLAN_CONFIG.reduce((acc, p) => {
+  for (const alias of p.aliases) acc[alias] = p.slug
+  return acc
+}, {})
+
+// Normalisasi nilai bebas dari DB (termasuk nilai lama seperti 'standard'/'premium')
+// ke slug tier resmi. Nilai tak dikenal jatuh ke tier terendah (fail-safe, bukan fail-open).
+const normalizePlan = (plan) => {
+  const raw = String(plan || '').trim().toLowerCase()
+  if (PLAN_BY_SLUG[raw]) return raw
+  return PLAN_ALIAS_TO_SLUG[raw] || 'rintis'
+}
+
+const planConfigFor = (plan) => PLAN_BY_SLUG[normalizePlan(plan)]
+const planRank = (plan) => planConfigFor(plan).rank
+const planLabel = (plan) => planConfigFor(plan).label
+const branchLimitFor = (plan) => planConfigFor(plan).branchLimit
+const cashierLimitFor = (plan) => planConfigFor(plan).cashierLimit
+const monthlyPriceFor = (plan) => planConfigFor(plan).monthlyPrice
+const menuItemLimitFor = (plan) => planConfigFor(plan).menuItemLimit
+
+// Label tier pada rank tertentu (untuk pesan "fitur ini butuh paket X").
+const planLabelForRank = (rank) => (PLAN_CONFIG.find((p) => p.rank === rank) || PLAN_CONFIG[PLAN_CONFIG.length - 1]).label
+
+// Nama tier satu tingkat di atas tier saat ini (untuk ajakan upgrade).
+const nextPlanLabel = (plan) => {
+  const next = PLAN_CONFIG.find((p) => p.rank === planRank(plan) + 1)
+  return next ? next.label : PLAN_CONFIG[PLAN_CONFIG.length - 1].label
+}
+
 // Tanggal berakhir EFEKTIF: tanggal manual menang (semua paket); free tanpa tanggal =
 // created_at + FREE_TRIAL_DAYS (trial); berbayar tanpa tanggal = null (tanpa batas).
 const effectiveExpiry = (plan, expiresAt, createdAt) => {
   if (expiresAt) { const d = new Date(expiresAt); return Number.isNaN(d.getTime()) ? null : d }
-  if (String(plan || 'free').toLowerCase() === 'free' && createdAt) {
+  if (normalizePlan(plan) === 'rintis' && createdAt) {
     const d = new Date(createdAt)
     if (Number.isNaN(d.getTime())) return null
     d.setDate(d.getDate() + FREE_TRIAL_DAYS)
@@ -99,16 +181,6 @@ const effectiveExpiry = (plan, expiresAt, createdAt) => {
 const isSubscriptionExpired = (plan, expiresAt, createdAt) => {
   const eff = effectiveExpiry(plan, expiresAt, createdAt)
   return !!eff && eff.getTime() < Date.now()
-}
-
-// Model billing: COMPANY-TIER. Paket dibeli di level perusahaan dan menetes ke
-// semua cabang. Kuota cabang ditentukan paket perusahaan (null = tak terbatas).
-const branchLimitFor = (plan) => {
-  switch (String(plan || 'free').toLowerCase()) {
-    case 'premium': return null // tak terbatas
-    case 'standard': return 2
-    default: return 1 // free
-  }
 }
 
 /**
@@ -183,18 +255,15 @@ const requireTenant = async (req, res, next) => {
   });
 };
 
-const isAdvancedPlan = (plan) => {
-  const normalized = String(plan || '').trim().toLowerCase()
-  return Boolean(normalized) && !['standard', 'basic', 'starter', 'free'].includes(normalized)
-}
-
-const requireAdvancedOrderingPlan = async (req, res, next) => {
+// Factory middleware generik: tolak request bila rank paket tenant di bawah minRank.
+const requireMinPlanRank = (minRank, featureLabel) => async (req, res, next) => {
   try {
-    const plan = req.subscriptionPlan || 'free';
-    if (!isAdvancedPlan(plan)) {
+    if (planRank(req.subscriptionPlan) < minRank) {
       return res.status(403).json({
         success: false,
-        error: 'Fitur Pesan Meja dan QRIS dinamis tidak tersedia untuk paket Standard.'
+        code: 'PLAN_UPGRADE_REQUIRED',
+        requiredPlan: planLabelForRank(minRank),
+        error: `Fitur "${featureLabel}" membutuhkan paket ${planLabelForRank(minRank)}. Silakan upgrade langganan Anda.`
       })
     }
     next()
@@ -203,36 +272,30 @@ const requireAdvancedOrderingPlan = async (req, res, next) => {
   }
 }
 
-const requireTelegramNotificationPlan = async (req, res, next) => {
-  try {
-    const plan = req.subscriptionPlan || 'free';
-    if (!isAdvancedPlan(plan)) {
-      return res.status(403).json({
-        success: false,
-        error: 'Fitur notifikasi Telegram hanya tersedia untuk paket Premium.'
-      })
-    }
-    next()
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-}
+// Pesan Meja & QRIS dinamis: bagian dari "Manajemen Meja, Split Bill & Anti-Void Fraud" — Cabang Space.
+const requireAdvancedOrderingPlan = requireMinPlanRank(PLAN_BY_SLUG.cabang.rank, 'Pesan Meja & QRIS Dinamis')
+
+// Notifikasi Telegram: bagian dari paket AI/notifikasi otomatis — Juragan Space (AI).
+const requireTelegramNotificationPlan = requireMinPlanRank(PLAN_BY_SLUG.juragan.rank, 'Notifikasi Telegram')
 
 const checkProductLimit = async (req, res, next) => {
   try {
-    const plan = req.subscriptionPlan || 'free'
-    const limits = { free: 20, standard: 100, premium: 999999 }
-    const maxItems = limits[plan] || 20
+    const plan = req.subscriptionPlan
+    const maxItems = menuItemLimitFor(plan)
 
-    // Hitung jumlah menu item aktif saat ini untuk tenant_id ini
-    const rows = await query('SELECT COUNT(*) as total FROM menu_items WHERE tenant_id = ? AND is_active = 1', [req.tenantId])
-    const currentTotal = rows[0]?.total || 0
+    if (maxItems !== null) {
+      // Hitung jumlah menu item aktif saat ini untuk tenant_id ini
+      const rows = await query('SELECT COUNT(*) as total FROM menu_items WHERE tenant_id = ? AND is_active = 1', [req.tenantId])
+      const currentTotal = rows[0]?.total || 0
 
-    if (currentTotal >= maxItems) {
-      return res.status(403).json({
-        success: false,
-        error: `Batas menu untuk paket ${plan.toUpperCase()} telah tercapai (${maxItems} menu). Silakan upgrade ke paket lebih tinggi.`
-      })
+      if (currentTotal >= maxItems) {
+        return res.status(403).json({
+          success: false,
+          code: 'PLAN_UPGRADE_REQUIRED',
+          requiredPlan: nextPlanLabel(plan),
+          error: `Batas menu untuk paket ${planLabel(plan)} telah tercapai (${maxItems} menu). Upgrade ke ${nextPlanLabel(plan)} untuk menu tanpa batas.`
+        })
+      }
     }
     next()
   } catch (err) {
@@ -242,19 +305,22 @@ const checkProductLimit = async (req, res, next) => {
 
 const checkCashierLimit = async (req, res, next) => {
   try {
-    const plan = req.subscriptionPlan || 'free'
-    const limits = { free: 1, standard: 5, premium: 999999 }
-    const maxCashiers = limits[plan] || 1
+    const plan = req.subscriptionPlan
+    const maxCashiers = cashierLimitFor(plan)
 
-    // Hitung jumlah kasir saat ini untuk tenant_id ini
-    const rows = await query('SELECT COUNT(*) as total FROM cashiers WHERE tenant_id = ?', [req.tenantId])
-    const currentTotal = rows[0]?.total || 0
+    if (maxCashiers !== null) {
+      // Hitung jumlah kasir saat ini untuk tenant_id ini
+      const rows = await query('SELECT COUNT(*) as total FROM cashiers WHERE tenant_id = ?', [req.tenantId])
+      const currentTotal = rows[0]?.total || 0
 
-    if (currentTotal >= maxCashiers) {
-      return res.status(403).json({
-        success: false,
-        error: `Batas akun kasir untuk paket ${plan.toUpperCase()} telah tercapai (${maxCashiers} kasir). Silakan upgrade ke paket lebih tinggi.`
-      })
+      if (currentTotal >= maxCashiers) {
+        return res.status(403).json({
+          success: false,
+          code: 'CASHIER_LIMIT_REACHED',
+          requiredPlan: nextPlanLabel(plan),
+          error: `Batas akun kasir untuk paket ${planLabel(plan)} telah tercapai (${maxCashiers} kasir). Upgrade ke ${nextPlanLabel(plan)} untuk menambah staf.`
+        })
+      }
     }
     next()
   } catch (err) {
@@ -268,6 +334,13 @@ const midtransBaseUrl = () => (
   String(process.env.MIDTRANS_IS_PRODUCTION || '').toLowerCase() === 'true'
     ? 'https://api.midtrans.com'
     : 'https://api.sandbox.midtrans.com'
+)
+
+// Snap (redirect/popup, banyak metode: kartu, VA, e-wallet) pakai base URL App terpisah dari Core API.
+const midtransSnapBaseUrl = () => (
+  String(process.env.MIDTRANS_IS_PRODUCTION || '').toLowerCase() === 'true'
+    ? 'https://app.midtrans.com'
+    : 'https://app.sandbox.midtrans.com'
 )
 
 const midtransAuthHeader = () => `Basic ${Buffer.from(`${process.env.MIDTRANS_SERVER_KEY || ''}:`).toString('base64')}`
@@ -658,6 +731,15 @@ router.post('/auth/login-google', loginLimiter, async (req, res) => {
   }
 })
 
+// Config publik (tanpa auth) — hanya nilai yang MEMANG boleh dibaca browser, spt Client
+// Key Midtrans (bukan Server Key). Dipakai frontend memuat Snap.js sebelum checkout.
+router.get('/config/public', (_req, res) => {
+  res.json({
+    midtransClientKey: process.env.MIDTRANS_CLIENT_KEY || null,
+    midtransIsProduction: String(process.env.MIDTRANS_IS_PRODUCTION || '').toLowerCase() === 'true',
+  })
+})
+
 // Health endpoint
 router.get('/health', async (_req, res) => {
   console.log('[GET /health] masuk handler')
@@ -681,8 +763,29 @@ router.post('/payments/midtrans/webhook', async (req, res) => {
   const reference = payload.order_id
   const transactionStatus = payload.transaction_status
   const fraudStatus = payload.fraud_status
+  const isSettled = (transactionStatus === 'settlement') || (transactionStatus === 'capture' && fraudStatus === 'accept')
+  const isFailed = ['expire', 'cancel', 'deny', 'failure'].includes(transactionStatus)
 
   try {
+    // Checkout upgrade paket langganan (prefix "SUB-") — beda tabel dari order kasir.
+    if (String(reference || '').startsWith('SUB-')) {
+      const payRows = await query('SELECT id, company_id, plan, months, status FROM subscription_payments WHERE midtrans_order_id = ? LIMIT 1', [reference])
+      const payment = payRows?.[0]
+      if (!payment) return res.status(404).json({ error: 'Transaksi langganan tidak ditemukan' })
+
+      if (payment.status !== 'paid') {
+        if (isSettled) {
+          await applyCompanyPlanChange(payment.company_id, payment.plan, payment.months, { action: 'upgrade_subscription', via: 'midtrans_webhook' })
+          await query('UPDATE subscription_payments SET status = ?, paid_at = NOW() WHERE id = ?', ['paid', payment.id])
+        } else if (isFailed) {
+          await query('UPDATE subscription_payments SET status = ? WHERE id = ?', [transactionStatus === 'expire' ? 'expired' : 'cancelled', payment.id])
+        } else if (transactionStatus === 'pending') {
+          await query('UPDATE subscription_payments SET status = ? WHERE id = ?', ['pending', payment.id])
+        }
+      }
+      return res.json({ success: true })
+    }
+
     const rows = await query('SELECT id FROM orders WHERE payment_reference=? LIMIT 1', [reference])
     const order = rows?.[0]
     if (!order) return res.status(404).json({ error: 'Order tidak ditemukan' })
@@ -691,11 +794,11 @@ router.post('/payments/midtrans/webhook', async (req, res) => {
     let paymentStatus = transactionStatus || 'unknown'
     let paidAt = null
 
-    if ((transactionStatus === 'settlement') || (transactionStatus === 'capture' && fraudStatus === 'accept')) {
+    if (isSettled) {
       orderStatus = 'paid'
       paymentStatus = 'paid'
       paidAt = new Date()
-    } else if (['expire', 'cancel', 'deny', 'failure'].includes(transactionStatus)) {
+    } else if (isFailed) {
       orderStatus = transactionStatus === 'expire' ? 'expired' : 'cancelled'
       paymentStatus = orderStatus
     } else if (transactionStatus === 'pending') {
@@ -852,33 +955,28 @@ router.use(enforceModuleAccess)
 // ==========================================================================
 // PENEGAKAN GATING PAKET (server-authoritative) — cegah bypass FE.
 // Per-TENANT/paket (bukan per-kasir), jadi admin/owner TIDAK bypass.
-// Tier: free/basic (0) < standard (1) < premium/enterprise (2).
-// Nonaktifkan sementara dg ENFORCE_PLAN_ACCESS=false.
+// Tier & batasnya didefinisikan satu tempat di PLAN_CONFIG (atas file ini),
+// selaras dgn halaman harga publik. Nonaktifkan sementara dg ENFORCE_PLAN_ACCESS=false
+// (mis. saat baru migrasi data plan tenant lama ke tier baru — audit dulu via log
+// sebelum menyalakan enforcement, supaya tidak mengunci pelanggan bayar scr tiba-tiba).
 // ==========================================================================
-const ENFORCE_PLAN_ACCESS = process.env.ENFORCE_PLAN_ACCESS !== 'false'
-
-const planRank = (plan) => {
-  const n = String(plan || '').trim().toLowerCase()
-  if (['premium', 'enterprise'].includes(n)) return 2
-  if (n === 'standard') return 1
-  return 0
-}
-const PLAN_LABEL = { 1: 'Standard', 2: 'Premium' }
+const ENFORCE_PLAN_ACCESS = process.env.ENFORCE_PLAN_ACCESS === 'true'
 
 const PLAN_ACCESS_MAP = [
-  // ---- Standard (rank 1) ----
-  { re: /^\/vouchers(\/|$)/, except: /^\/vouchers\/validate(\/|$)/, plan: 1, feature: 'Voucher & Promo' },
-  { re: /^\/materials(\/|$)/, plan: 1, feature: 'Manajemen Bahan Baku' },
-  { re: /^\/items\/[^/]+\/materials$/, plan: 1, feature: 'Resep/Bahan Item' },
-  { re: /^\/reports\/materials(\/|$)/, plan: 1, feature: 'Laporan Stok Bahan' },
-  { re: /^\/reports\/expenses(\/|$)/, plan: 1, feature: 'Laporan Pengeluaran' },
-  { re: /^\/expenses(\/|$)/, plan: 1, feature: 'Pengeluaran' },
-  // ---- Premium/Enterprise (rank 2) ----
-  { re: /^\/kitchen(\/|$)/, plan: 2, feature: 'Kitchen Display' },
-  { re: /^\/activity-logs(\/|$)/, plan: 2, feature: 'Log Aktivitas / Audit' },
-  { re: /^\/(all-)?user-access(\/|$)/, plan: 2, feature: 'Manajemen Akses' },
-  { re: /^\/reports\/profit-loss(\/|$)/, plan: 2, feature: 'Laporan Laba Rugi' },
-  { re: /^\/reports\/branches-comparison(\/|$)/, plan: 2, feature: 'Perbandingan Cabang' },
+  // ---- Toko Space (rank 1) ----
+  { re: /^\/vouchers(\/|$)/, except: /^\/vouchers\/validate(\/|$)/, plan: PLAN_BY_SLUG.toko.rank, feature: 'Voucher & Promo' },
+  { re: /^\/reports\/expenses(\/|$)/, plan: PLAN_BY_SLUG.toko.rank, feature: 'Laporan Pengeluaran' },
+  { re: /^\/expenses(\/|$)/, plan: PLAN_BY_SLUG.toko.rank, feature: 'Pengeluaran' },
+  // ---- Cabang Space (rank 2) — Manajemen Resep & Potong Bahan Baku (HPP), Laba Rugi, Perbandingan Cabang ----
+  { re: /^\/materials(\/|$)/, plan: PLAN_BY_SLUG.cabang.rank, feature: 'Manajemen Bahan Baku' },
+  { re: /^\/items\/[^/]+\/materials$/, plan: PLAN_BY_SLUG.cabang.rank, feature: 'Resep/Bahan Item' },
+  { re: /^\/reports\/materials(\/|$)/, plan: PLAN_BY_SLUG.cabang.rank, feature: 'Laporan Stok Bahan' },
+  { re: /^\/reports\/profit-loss(\/|$)/, plan: PLAN_BY_SLUG.cabang.rank, feature: 'Laporan Laba Rugi' },
+  { re: /^\/reports\/branches-comparison(\/|$)/, plan: PLAN_BY_SLUG.cabang.rank, feature: 'Perbandingan Cabang' },
+  // ---- Juragan Space AI (rank 3) — Kitchen Display, audit, manajemen akses lanjutan ----
+  { re: /^\/kitchen(\/|$)/, plan: PLAN_BY_SLUG.juragan.rank, feature: 'Kitchen Display' },
+  { re: /^\/activity-logs(\/|$)/, plan: PLAN_BY_SLUG.juragan.rank, feature: 'Log Aktivitas / Audit' },
+  { re: /^\/(all-)?user-access(\/|$)/, plan: PLAN_BY_SLUG.juragan.rank, feature: 'Manajemen Akses' },
 ]
 
 const enforcePlanAccess = (req, res, next) => {
@@ -887,16 +985,16 @@ const enforcePlanAccess = (req, res, next) => {
       (r) => r.re.test(req.path) && (!r.except || !r.except.test(req.path))
     )
     if (rule && planRank(req.subscriptionPlan) < rule.plan) {
-      const needed = PLAN_LABEL[rule.plan] || 'lebih tinggi'
+      const needed = planLabelForRank(rule.plan)
       if (ENFORCE_PLAN_ACCESS) {
         return res.status(403).json({
           success: false,
           code: 'PLAN_UPGRADE_REQUIRED',
-          requiredPlan: needed.toLowerCase(),
+          requiredPlan: needed,
           error: `Fitur "${rule.feature}" membutuhkan paket ${needed}. Silakan upgrade langganan Anda.`,
         })
       }
-      console.warn(`[PLAN AUDIT] tenant ${req.tenantId} plan '${req.subscriptionPlan}' akses '${rule.feature}' (${req.method} ${req.path}) — akan 403 bila ENFORCE_PLAN_ACCESS≠false`)
+      console.warn(`[PLAN AUDIT] tenant ${req.tenantId} plan '${req.subscriptionPlan}' akses '${rule.feature}' (${req.method} ${req.path}) — akan 403 bila ENFORCE_PLAN_ACCESS=true`)
     }
   } catch (err) {
     console.warn('[PLAN] enforcePlanAccess error (fail-open):', err.message)
@@ -915,6 +1013,9 @@ async function ensureMaterialsColumn() {
     'ALTER TABLE cashiers ADD COLUMN email_verify_expires DATETIME NULL',
     // Slug publik tenant untuk URL QR meja (self-order pelanggan). Diisi saat tenant dibuat.
     'ALTER TABLE tenants ADD COLUMN public_slug VARCHAR(32) NULL',
+    // Kolom masa langganan company (dipakai untuk cek expiry & upgrade plan).
+    'ALTER TABLE companies ADD COLUMN subscription_started_at DATETIME NULL',
+    'ALTER TABLE companies ADD COLUMN subscription_expires_at DATETIME NULL',
   ]) {
     try { await query(sql) } catch (err) {
       if (!/Duplicate column|exists/i.test(err?.message || '')) console.warn('Warning adding email-verify column:', err.message)
@@ -1148,6 +1249,24 @@ async function ensureMaterialsColumn() {
         ON DUPLICATE KEY UPDATE name=name
       `)
     } catch (e) { /* error setting up companies */ }
+
+    // Ensure subscription_payments table (checkout upgrade paket via Midtrans Snap)
+    try {
+      await query(`
+        CREATE TABLE IF NOT EXISTS subscription_payments (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          company_id INT NOT NULL,
+          plan VARCHAR(50) NOT NULL,
+          months INT NOT NULL,
+          amount INT NOT NULL,
+          midtrans_order_id VARCHAR(100) NOT NULL UNIQUE,
+          snap_token VARCHAR(255) NULL,
+          status VARCHAR(30) NOT NULL DEFAULT 'pending',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          paid_at DATETIME NULL
+        )
+      `)
+    } catch (e) { /* error setting up subscription_payments */ }
 
     // Ensure company_id columns
     for (const tableName of ['tenants', 'menu_items', 'materials']) {
@@ -1782,25 +1901,26 @@ router.post('/branches', async (req, res) => {
     if (!companyRows.length) {
       return res.status(404).json({ success: false, message: 'Perusahaan tidak ditemukan.' })
     }
-    const companyPlan = String(companyRows[0].subscription_plan || 'free').toLowerCase()
+    const companyPlan = companyRows[0].subscription_plan
     const limit = branchLimitFor(companyPlan)
 
     const [{ cnt }] = await query('SELECT COUNT(*) AS cnt FROM tenants WHERE company_id = ?', [req.companyId])
     if (limit !== null && cnt >= limit) {
-      const nextTier = companyPlan === 'free' ? 'Standard' : 'Premium'
+      const nextTier = nextPlanLabel(companyPlan)
       return res.status(403).json({
         success: false,
         code: 'BRANCH_LIMIT_REACHED',
-        message: `Paket ${companyPlan.toUpperCase()} dibatasi ${limit} cabang. Upgrade ke ${nextTier} untuk menambah cabang lagi.`,
-        data: { plan: companyPlan, limit, current: cnt, nextTier: nextTier.toLowerCase() },
+        message: `Paket ${planLabel(companyPlan)} dibatasi ${limit} cabang. Upgrade ke ${nextTier} untuk menambah cabang lagi.`,
+        data: { plan: normalizePlan(companyPlan), limit, current: cnt, nextTier },
       })
     }
 
+    const companyPlanSlug = normalizePlan(companyPlan)
     const domain = `${slugifyBusiness(name)}${crypto.randomBytes(3).toString('hex')}`
     const activationCode = genActivationCode()
     const result = await query(
       'INSERT INTO tenants (name, domain, subscription_plan, is_active, activation_code, company_id, public_slug) VALUES (?, ?, ?, 1, ?, ?, ?)',
-      [name, domain, companyPlan, activationCode, req.companyId, genPublicSlug()]
+      [name, domain, companyPlanSlug, activationCode, req.companyId, genPublicSlug()]
     )
     const newId = result.insertId
 
@@ -1808,7 +1928,7 @@ router.post('/branches', async (req, res) => {
     try {
       await query(
         'INSERT INTO activity_logs (cashier_id, tenant_id, action, entity, entity_id, details) VALUES (?, ?, ?, ?, ?, ?)',
-        [req.cashierId || null, newId, 'branch_create', 'branch', newId, JSON.stringify({ name, plan: companyPlan, domain })]
+        [req.cashierId || null, newId, 'branch_create', 'branch', newId, JSON.stringify({ name, plan: companyPlanSlug, domain })]
       )
     } catch { /* log gagal tidak boleh menggagalkan pembuatan cabang */ }
 
@@ -1909,68 +2029,255 @@ router.delete('/branches/:id', async (req, res) => {
   }
 })
 
-// Upgrade langganan — MODEL A / COMPANY-TIER. Paket berlaku untuk SELURUH
-// perusahaan (semua cabang), bukan per-outlet. Hanya OWNER. Mengubah paket di
-// companies, memperpanjang masa aktif (base = max(sekarang, masa aktif berjalan)),
-// lalu menyinkron semua tenant agar seragam.
+// Terapkan perubahan paket ke companies + sinkron semua tenant di bawahnya. Dipakai
+// oleh DUA jalur: (1) downgrade instan/gratis (POST /subscription/upgrade), dan
+// (2) setelah pembayaran upgrade/perpanjangan lunas dikonfirmasi webhook Midtrans
+// (POST /subscription/checkout). Tidak melakukan guard arah — pemanggil wajib sudah
+// memvalidasi sebelum memanggil fungsi ini.
+// extendMonths=0 → plan berubah tapi masa aktif TIDAK diperpanjang (dipakai saat
+// downgrade gratis, supaya downgrade tidak diam-diam memberi tambahan masa aktif).
+async function applyCompanyPlanChange(companyId, planNorm, extendMonths, meta = {}) {
+  const companyRows = await query(
+    'SELECT id, name, subscription_plan, subscription_expires_at, created_at FROM companies WHERE id = ? LIMIT 1',
+    [companyId]
+  )
+  if (!companyRows.length) {
+    const err = new Error('Perusahaan tidak ditemukan.')
+    err.status = 404
+    throw err
+  }
+  const co = companyRows[0]
+
+  let newExpiry = co.subscription_expires_at ? new Date(co.subscription_expires_at) : null
+  if (extendMonths > 0) {
+    // Base perpanjangan: bila masih aktif, tambahkan dari tanggal berakhir berjalan;
+    // bila sudah lewat/kosong, mulai dari sekarang.
+    const currentEff = effectiveExpiry(co.subscription_plan, co.subscription_expires_at, co.created_at)
+    const base = (currentEff && currentEff.getTime() > Date.now()) ? currentEff : new Date()
+    newExpiry = new Date(base)
+    newExpiry.setMonth(newExpiry.getMonth() + extendMonths)
+  }
+
+  await query(
+    'UPDATE companies SET subscription_plan = ?, subscription_started_at = COALESCE(subscription_started_at, NOW()), subscription_expires_at = ? WHERE id = ?',
+    [planNorm, newExpiry, companyId]
+  )
+  // Sinkron semua cabang ke paket perusahaan.
+  await query('UPDATE tenants SET subscription_plan = ? WHERE company_id = ?', [planNorm, companyId])
+
+  try {
+    await query(
+      'INSERT INTO activity_logs (cashier_id, tenant_id, action, entity, entity_id, details) VALUES (?, ?, ?, ?, ?, ?)',
+      [
+        meta.cashierId || null,
+        meta.tenantId || null,
+        meta.action || 'change_subscription',
+        'subscription',
+        companyId,
+        JSON.stringify({ plan: planNorm, extend_months: extendMonths, expires_at: newExpiry, scope: 'company', via: meta.via || 'manual' })
+      ]
+    )
+  } catch { /* log gagal tidak menggagalkan proses */ }
+
+  return { company: co, newExpiry }
+}
+
+// Downgrade paket — GRATIS & INSTAN, hanya untuk pindah ke tier LEBIH RENDAH dari
+// saat ini (tidak ada pembayaran, jadi tidak lewat Midtrans). Untuk upgrade atau
+// perpanjangan paket berbayar, pakai POST /subscription/checkout.
 router.post('/subscription/upgrade', async (req, res) => {
   if (String(req.callerRole || '').toLowerCase() !== 'owner') {
     return res.status(403).json({ success: false, error: 'Hanya pemilik (owner) yang dapat mengubah paket langganan.' });
   }
-  const { plan, months } = req.body;
+  const { plan } = req.body;
   const planNorm = String(plan || '').toLowerCase();
-  const dur = Number(months);
-  if (!['standard', 'premium'].includes(planNorm) || !Number.isInteger(dur) || dur <= 0 || dur > 60) {
-    return res.status(400).json({ error: 'Paket (standard/premium) dan durasi (1–60 bulan) wajib valid.' });
+  const purchasablePlans = PLAN_CONFIG.filter((p) => p.rank > 0).map((p) => p.slug)
+  if (!purchasablePlans.includes(planNorm)) {
+    return res.status(400).json({ error: `Paket tidak valid. Pilih salah satu: ${purchasablePlans.join('/')}.` });
   }
 
   try {
-    const companyRows = await query(
-      'SELECT id, name, subscription_plan, subscription_expires_at, created_at FROM companies WHERE id = ? LIMIT 1',
-      [req.companyId]
-    );
-    if (!companyRows.length) {
-      return res.status(404).json({ error: 'Perusahaan tidak ditemukan.' });
+    const companyRows = await query('SELECT subscription_plan FROM companies WHERE id = ? LIMIT 1', [req.companyId])
+    if (!companyRows.length) return res.status(404).json({ error: 'Perusahaan tidak ditemukan.' })
+    const currentPlan = companyRows[0].subscription_plan
+
+    if (planRank(planNorm) >= planRank(currentPlan)) {
+      return res.status(400).json({
+        success: false,
+        code: 'PAYMENT_REQUIRED',
+        error: 'Upgrade atau perpanjangan paket berbayar wajib melalui pembayaran. Gunakan tombol Upgrade untuk checkout.'
+      })
     }
-    const co = companyRows[0];
 
-    // Base perpanjangan: bila masih aktif, tambahkan dari tanggal berakhir berjalan;
-    // bila sudah lewat/kosong, mulai dari sekarang.
-    const currentEff = effectiveExpiry(co.subscription_plan, co.subscription_expires_at, co.created_at);
-    const base = (currentEff && currentEff.getTime() > Date.now()) ? currentEff : new Date();
-    const newExpiry = new Date(base);
-    newExpiry.setMonth(newExpiry.getMonth() + dur);
+    // Guard downgrade: pemakaian saat ini (jumlah cabang & staf per cabang) harus
+    // masih muat di kuota paket baru yang lebih rendah itu.
+    const targetBranchLimit = branchLimitFor(planNorm)
+    const targetCashierLimit = cashierLimitFor(planNorm)
 
-    await query(
-      'UPDATE companies SET subscription_plan = ?, subscription_started_at = COALESCE(subscription_started_at, NOW()), subscription_expires_at = ? WHERE id = ?',
-      [planNorm, newExpiry, req.companyId]
-    );
-    // Sinkron semua cabang ke paket perusahaan.
-    await query('UPDATE tenants SET subscription_plan = ? WHERE company_id = ?', [planNorm, req.companyId]);
+    const [{ branchCount }] = await query('SELECT COUNT(*) AS branchCount FROM tenants WHERE company_id = ?', [req.companyId])
+    if (targetBranchLimit !== null && branchCount > targetBranchLimit) {
+      return res.status(400).json({
+        success: false,
+        code: 'DOWNGRADE_BLOCKED_BRANCHES',
+        error: `Tidak bisa downgrade ke ${planLabel(planNorm)}: Anda punya ${branchCount} cabang, paket ini hanya mengizinkan ${targetBranchLimit}. Nonaktifkan/hapus cabang berlebih terlebih dahulu.`
+      })
+    }
 
-    // Catat log (scope perusahaan → pakai tenant aktif sbg konteks).
-    try {
-      await query(
-        'INSERT INTO activity_logs (cashier_id, tenant_id, action, entity, entity_id, details) VALUES (?, ?, ?, ?, ?, ?)',
-        [
-          req.cashierId || null,
-          req.tenantId || null,
-          'upgrade_subscription',
-          'subscription',
-          req.companyId,
-          JSON.stringify({ plan: planNorm, duration_months: dur, expires_at: newExpiry, scope: 'company' })
-        ]
-      );
-    } catch { /* log gagal tidak menggagalkan upgrade */ }
+    if (targetCashierLimit !== null) {
+      const overLimitTenants = await query(
+        `SELECT t.name, COUNT(c.id) AS cnt FROM tenants t LEFT JOIN cashiers c ON c.tenant_id = t.id
+         WHERE t.company_id = ? GROUP BY t.id HAVING cnt > ? LIMIT 1`,
+        [req.companyId, targetCashierLimit]
+      )
+      if (overLimitTenants.length) {
+        return res.status(400).json({
+          success: false,
+          code: 'DOWNGRADE_BLOCKED_STAFF',
+          error: `Tidak bisa downgrade ke ${planLabel(planNorm)}: cabang "${overLimitTenants[0].name}" punya lebih dari ${targetCashierLimit} akun staf. Kurangi jumlah staf terlebih dahulu.`
+        })
+      }
+    }
+
+    const { newExpiry } = await applyCompanyPlanChange(req.companyId, planNorm, 0, {
+      cashierId: req.cashierId, tenantId: req.tenantId, action: 'downgrade_subscription', via: 'manual'
+    })
 
     res.json({
       success: true,
-      message: `Paket ${co.name} diperbarui ke ${planNorm.toUpperCase()} untuk seluruh cabang. Aktif s/d ${newExpiry.toLocaleDateString('id-ID')}.`,
+      message: `Paket berhasil diturunkan ke ${planLabel(planNorm)}.`,
       data: { plan: planNorm, expires_at: newExpiry }
     });
   } catch (err) {
-    console.error('Upgrade subscription error:', err);
-    res.status(500).json({ error: err.message });
+    console.error('Downgrade subscription error:', err);
+    res.status(err.status || 500).json({ error: err.message });
+  }
+})
+
+// Checkout upgrade/perpanjangan paket BERBAYAR via Midtrans Snap. Membuat transaksi
+// Snap (token dipakai frontend utk buka popup pembayaran); paket baru BARU diterapkan
+// setelah pembayaran lunas dikonfirmasi lewat webhook (lihat /payments/midtrans/webhook).
+router.post('/subscription/checkout', async (req, res) => {
+  if (String(req.callerRole || '').toLowerCase() !== 'owner') {
+    return res.status(403).json({ success: false, error: 'Hanya pemilik (owner) yang dapat mengubah paket langganan.' });
+  }
+  if (!process.env.MIDTRANS_SERVER_KEY) {
+    return res.status(500).json({ error: 'MIDTRANS_SERVER_KEY belum diset di server.' })
+  }
+  const { plan, months } = req.body;
+  const planNorm = String(plan || '').toLowerCase();
+  const dur = Number(months);
+  const purchasablePlans = PLAN_CONFIG.filter((p) => p.rank > 0).map((p) => p.slug)
+  if (!purchasablePlans.includes(planNorm) || !Number.isInteger(dur) || dur <= 0 || dur > 60) {
+    return res.status(400).json({ error: `Paket (${purchasablePlans.join('/')}) dan durasi (1–60 bulan) wajib valid.` });
+  }
+
+  try {
+    const companyRows = await query('SELECT id, name, subscription_plan FROM companies WHERE id = ? LIMIT 1', [req.companyId])
+    if (!companyRows.length) return res.status(404).json({ error: 'Perusahaan tidak ditemukan.' })
+    const co = companyRows[0]
+
+    if (planRank(planNorm) < planRank(co.subscription_plan)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Ini menurunkan paket — gunakan jalur downgrade gratis, bukan checkout pembayaran.'
+      })
+    }
+
+    // Harga ditentukan SERVER, bukan dari input client — cegah manipulasi nominal bayar.
+    const unitPrice = monthlyPriceFor(planNorm)
+    const amount = unitPrice * dur
+    if (!(amount > 0)) {
+      return res.status(400).json({ error: 'Paket ini tidak memiliki harga berbayar.' })
+    }
+
+    const cashierRows = await query('SELECT name, email FROM cashiers WHERE id = ? LIMIT 1', [req.cashierId])
+    const owner = cashierRows[0] || {}
+    const midtransOrderId = `SUB-${req.companyId}-${Date.now()}`
+
+    await query(
+      'INSERT INTO subscription_payments (company_id, plan, months, amount, midtrans_order_id, status) VALUES (?, ?, ?, ?, ?, ?)',
+      [req.companyId, planNorm, dur, amount, midtransOrderId, 'pending']
+    )
+
+    const snapPayload = {
+      transaction_details: { order_id: midtransOrderId, gross_amount: amount },
+      item_details: [{
+        id: planNorm,
+        price: unitPrice,
+        quantity: dur,
+        name: `Paket ${planLabel(planNorm)} (${dur} bulan)`.slice(0, 50),
+      }],
+      customer_details: {
+        first_name: (owner.name || co.name || 'Owner').slice(0, 50),
+        email: owner.email || undefined,
+      },
+    }
+
+    const snapRes = await fetch(`${midtransSnapBaseUrl()}/snap/v1/transactions`, {
+      method: 'POST',
+      headers: {
+        Authorization: midtransAuthHeader(),
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(snapPayload),
+    })
+    const snapBody = await snapRes.json()
+    if (!snapRes.ok || !snapBody.token) {
+      await query('UPDATE subscription_payments SET status = ? WHERE midtrans_order_id = ?', ['failed', midtransOrderId])
+      const midtransMessage = Array.isArray(snapBody?.status_message) ? snapBody.status_message.join(', ') : snapBody?.status_message
+      return res.status(502).json({ error: midtransMessage || 'Gagal membuat transaksi Midtrans.', details: snapBody })
+    }
+
+    await query('UPDATE subscription_payments SET snap_token = ? WHERE midtrans_order_id = ?', [snapBody.token, midtransOrderId])
+
+    res.status(201).json({
+      success: true,
+      paymentReference: midtransOrderId,
+      token: snapBody.token,
+      redirectUrl: snapBody.redirect_url,
+      amount,
+    })
+  } catch (err) {
+    console.error('Subscription checkout error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Polling fallback status pembayaran checkout paket (jaga-jaga webhook telat/gagal terkirim).
+router.get('/subscription/checkout/:reference/status', async (req, res) => {
+  const reference = req.params.reference
+  try {
+    const rows = await query(
+      'SELECT id, company_id, plan, months, status FROM subscription_payments WHERE midtrans_order_id = ? AND company_id = ? LIMIT 1',
+      [reference, req.companyId]
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Transaksi tidak ditemukan.' })
+    let payment = rows[0]
+
+    if (payment.status === 'pending' && process.env.MIDTRANS_SERVER_KEY) {
+      const statusRes = await fetch(`${midtransBaseUrl()}/v2/${encodeURIComponent(reference)}/status`, {
+        headers: { Authorization: midtransAuthHeader(), Accept: 'application/json' },
+      })
+      const statusPayload = await statusRes.json()
+      if (statusRes.ok) {
+        const transactionStatus = statusPayload.transaction_status
+        const fraudStatus = statusPayload.fraud_status
+        if ((transactionStatus === 'settlement') || (transactionStatus === 'capture' && fraudStatus === 'accept')) {
+          await applyCompanyPlanChange(payment.company_id, payment.plan, payment.months, { action: 'upgrade_subscription', via: 'midtrans_poll' })
+          await query('UPDATE subscription_payments SET status = ?, paid_at = NOW() WHERE id = ?', ['paid', payment.id])
+          payment = { ...payment, status: 'paid' }
+        } else if (['expire', 'cancel', 'deny', 'failure'].includes(transactionStatus)) {
+          await query('UPDATE subscription_payments SET status = ? WHERE id = ?', [transactionStatus === 'expire' ? 'expired' : 'cancelled', payment.id])
+          payment = { ...payment, status: transactionStatus === 'expire' ? 'expired' : 'cancelled' }
+        }
+      }
+    }
+
+    res.json({ success: true, status: payment.status, plan: payment.plan })
+  } catch (err) {
+    console.error('Subscription status poll error:', err)
+    res.status(500).json({ error: err.message })
   }
 })
 
@@ -3019,11 +3326,13 @@ router.post('/orders', async (req, res) => {
   }
 
   const advancedPaymentRequested = String(paymentMethod || '').toLowerCase() === 'pesan_meja' || String(orderType || '').toLowerCase() === 'meja'
-  if (advancedPaymentRequested) {
-    const plan = req.subscriptionPlan || 'free';
-    if (!isAdvancedPlan(plan)) {
-      return res.status(403).json({ error: 'Fitur Pesan Meja dan QRIS dinamis tidak tersedia untuk paket Standard.' })
-    }
+  if (advancedPaymentRequested && planRank(req.subscriptionPlan) < PLAN_BY_SLUG.cabang.rank) {
+    return res.status(403).json({
+      success: false,
+      code: 'PLAN_UPGRADE_REQUIRED',
+      requiredPlan: PLAN_BY_SLUG.cabang.label,
+      error: `Fitur Pesan Meja & QRIS dinamis membutuhkan paket ${PLAN_BY_SLUG.cabang.label}. Silakan upgrade langganan Anda.`
+    })
   }
 
   try {
@@ -3482,48 +3791,6 @@ router.post('/table-orders/payment', requireAdvancedOrderingPlan, async (req, re
       qrUrl,
       expiredMinutes: Number(process.env.PAYMENT_EXPIRE_MINUTES) || 15,
     })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
-router.post('/payments/midtrans/webhook', async (req, res) => {
-  const payload = req.body || {}
-  if (!verifyMidtransSignature(payload)) {
-    return res.status(403).json({ error: 'Invalid Midtrans signature' })
-  }
-
-  const reference = payload.order_id
-  const transactionStatus = payload.transaction_status
-  const fraudStatus = payload.fraud_status
-
-  try {
-    const rows = await query('SELECT id FROM orders WHERE payment_reference=? LIMIT 1', [reference])
-    const order = rows?.[0]
-    if (!order) return res.status(404).json({ error: 'Order tidak ditemukan' })
-
-    let orderStatus = 'waiting_payment'
-    let paymentStatus = transactionStatus || 'unknown'
-    let paidAt = null
-
-    if ((transactionStatus === 'settlement') || (transactionStatus === 'capture' && fraudStatus === 'accept')) {
-      orderStatus = 'paid'
-      paymentStatus = 'paid'
-      paidAt = new Date()
-    } else if (['expire', 'cancel', 'deny', 'failure'].includes(transactionStatus)) {
-      orderStatus = transactionStatus === 'expire' ? 'expired' : 'cancelled'
-      paymentStatus = orderStatus
-    } else if (transactionStatus === 'pending') {
-      orderStatus = 'waiting_payment'
-      paymentStatus = 'pending'
-    }
-
-    await query(
-      'UPDATE orders SET order_status=?, payment_status=?, paid_at=COALESCE(?, paid_at) WHERE id=?',
-      [orderStatus, paymentStatus, paidAt, order.id]
-    )
-    await logActivity(req, 'payment_webhook', 'order', order.id, { reference, transactionStatus, fraudStatus })
-    res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

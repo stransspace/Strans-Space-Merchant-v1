@@ -18,7 +18,8 @@ export function Sidebar({
   collapsed,
   onToggleCollapse,
   branchCount = 2,
-  planName = 'Juragan Space (AI)',
+  planName = 'Rintis Space',
+  planTag,
   onOpenUpgrade
 }) {
   const { t } = useLanguage();
@@ -166,20 +167,19 @@ export function Sidebar({
         ) : (
           <>
             {/* Plan Card */}
-            <div className="rounded-2xl border border-[var(--color-hairline)] bg-[var(--color-snow)] p-3 space-y-1.5 shadow-2xs">
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-1.5 font-bold text-xs text-[var(--color-ink)]">
-                  <Crown className="h-3.5 w-3.5 text-amber-500" />
-                  <span>{planName}</span>
-                </span>
-                <span className="text-[10px] text-[var(--color-brand-700)] font-bold bg-[var(--color-brand-50)] px-1.5 py-0.5 rounded-full border border-[var(--color-brand-200)]">
-                  2/∞
-                </span>
+            <button
+              type="button"
+              onClick={onOpenUpgrade}
+              className="w-full rounded-2xl border border-[var(--color-hairline)] bg-[var(--color-snow)] p-3 space-y-1.5 text-left shadow-2xs hover:border-[var(--color-brand-300)] transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-1.5">
+                <Crown className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                <span className="font-bold text-xs text-[var(--color-ink)] truncate">{planName}</span>
               </div>
               <p className="text-[11px] text-[var(--color-slate-muted)] leading-tight">
-                {t('topbar.planTag', '2 Cabang (Tanpa batas)')}
+                {planTag || t('topbar.planTag', '')}
               </p>
-            </div>
+            </button>
 
             {/* Link Web POS */}
             <a

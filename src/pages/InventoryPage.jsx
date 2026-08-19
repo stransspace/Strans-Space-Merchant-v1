@@ -31,11 +31,21 @@ import { Badge } from '../components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogContent, DialogFooter } from '../components/ui/dialog';
 import Pagination from '../components/Pagination';
 
-export default function InventoryPage({ activeBranchId, session, setActionError, setSuccessMessage, confirmAction }) {
+const INVENTORY_SUB_TABS = ['stock', 'materials'];
+
+export default function InventoryPage({ activeBranchId, session, setActionError, setSuccessMessage, confirmAction, initialSubTab }) {
   const [materials, setMaterials] = useState([]);
   const [centralStock, setCentralStock] = useState(null);
   const [activeTab, setActiveTab] = useState('stock'); // 'stock' | 'materials'
-  
+
+  // Deep-link dari GlobalSearch (Cmd+K), mis. "inventory:materials".
+  useEffect(() => {
+    if (initialSubTab && INVENTORY_SUB_TABS.includes(initialSubTab)) {
+      setActiveTab(initialSubTab);
+    }
+  }, [initialSubTab]);
+
+
   const [inventorySearch, setInventorySearch] = useState('');
   const [materialsSearch, setMaterialsSearch] = useState('');
   const [inventoryPage, setInventoryPage] = useState(1);

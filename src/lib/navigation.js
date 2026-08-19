@@ -18,6 +18,7 @@ import {
   ChefHat,
   Wallet
 } from 'lucide-react';
+import { PLAN_RANK } from './plans';
 
 export const NAV_GROUPS = [
   {
@@ -67,7 +68,7 @@ export const NAV_GROUPS = [
         children: [
           { id: "products", label: "Produk & Menu", href: "/products", icon: ShoppingBasket },
           { id: "inventory", label: "Stok Cabang", href: "/inventory", icon: Layers },
-          { id: "central-kitchen", label: "Gudang Pusat", href: "/central-kitchen", icon: Factory }
+          { id: "central-kitchen", label: "Gudang Pusat", href: "/central-kitchen", icon: Factory, requiresPlanRank: PLAN_RANK.juragan }
         ]
       },
       {
@@ -78,7 +79,7 @@ export const NAV_GROUPS = [
         description: "Mesin kasir POS, kode aktivasi, dan layar dapur KDS",
         children: [
           { id: "kasir", label: "Mesin Kasir", href: "/kasir", icon: Smartphone },
-          { id: "kds", label: "Layar Dapur & QR", href: "/kds", icon: ChefHat }
+          { id: "kds", label: "Layar Dapur & QR", href: "/kds", icon: ChefHat, requiresPlanRank: PLAN_RANK.juragan }
         ]
       },
       {
@@ -136,3 +137,16 @@ export const NAV_GROUPS = [
     ]
   }
 ];
+
+// Cari `requiresPlanRank` suatu tab (id top-level atau id anak/sub-tab) di NAV_GROUPS.
+// Mengembalikan null bila tab tidak dibatasi tier tertentu.
+export function getRequiredPlanRank(tabId) {
+  for (const group of NAV_GROUPS) {
+    for (const item of group.items) {
+      if (item.id === tabId) return item.requiresPlanRank ?? null;
+      const child = item.children?.find((c) => c.id === tabId);
+      if (child) return child.requiresPlanRank ?? null;
+    }
+  }
+  return null;
+}

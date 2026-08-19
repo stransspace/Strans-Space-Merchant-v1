@@ -23,6 +23,10 @@ import {
   deleteBranch
 } from './lib/api';
 import { applyThemePalette, applyThemeMode, getSavedPreferences } from './lib/theme';
+import { planRank, planLabel, branchLimitFor } from './lib/plans';
+import { getRequiredPlanRank } from './lib/navigation';
+import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogContent, DialogFooter } from './components/ui/dialog';
+import { UpgradeRequired } from './components/layout/UpgradeRequired';
 
 // Pages
 import DashboardPage from './pages/DashboardPage';
@@ -59,6 +63,12 @@ export default function App() {
   // Session State
   const [session, setSession] = useState(getSession());
   const [activeTab, setActiveTab] = useState('overview');
+  // Sub-tab awal untuk halaman yang punya sub-menu sendiri (settings, inventory, central-kitchen),
+  // dipakai saat navigasi langsung dari GlobalSearch (id berformat "tab:subTab").
+  const [pendingSubTab, setPendingSubTab] = useState(null);
+  // Prompt upgrade paket, dipicu dari mana saja saat backend menolak request dgn
+  // kode PLAN_UPGRADE_REQUIRED/BRANCH_LIMIT_REACHED/CASHIER_LIMIT_REACHED (lihat api.js).
+  const [upgradePrompt, setUpgradePrompt] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [impersonating, setImpersonating] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -154,7 +164,6 @@ export default function App() {
   }, [session]);
 
   const isOwner = String(session?.cashier?.role || '').toLowerCase() === 'owner';
-  const currentPlan = session?.tenant?.subscription_plan || 'premium';
 
   const handleBranchChange = (branchId) => {
     setActiveBranchId(branchId);
@@ -217,7 +226,7 @@ export default function App() {
     setLoginError('');
     setLoginLoading(true);
     try {
-      const resp = await loginOwner(loginEmail, loginPin);
+      const resp = await loginOwner({ email: loginEmail, pin: loginPin });
       setSession(resp);
       setSuccessMessage(`Selamat datang kembali, ${resp.cashier.name}!`);
     } catch (err) {
@@ -257,6 +266,18 @@ export default function App() {
     setSuccessMessage('Anda telah keluar.');
   };
 
+  // Setelah upgrade paket berhasil (lihat /api/subscription/upgrade), perbarui plan di
+  // sesi aktif (state + localStorage) supaya seluruh UI (Sidebar, gate fitur) langsung
+  // ikut berubah tanpa perlu login ulang.
+  const updateSessionPlan = (newPlan) => {
+    setSession((prev) => {
+      if (!prev) return prev;
+      const updatedTenant = { ...prev.tenant, subscription_plan: newPlan };
+      try { localStorage.setItem('merchant_tenant', JSON.stringify(updatedTenant)); } catch { /* ignore */ }
+      return { ...prev, tenant: updatedTenant };
+    });
+  };
+
   const handleResendVerification = async () => {
     setResendingVerify(true);
     try {
@@ -268,6 +289,40 @@ export default function App() {
       setResendingVerify(false);
     }
   };
+
+  // Dipakai oleh Sidebar dan GlobalSearch (Cmd+K) untuk pindah tab, termasuk
+  // deep-link langsung ke sub-tab, mis. "settings:security" atau "inventory:materials".
+  const handleSelectTab = (rawId) => {
+    const [tabId, subTab] = rawId.split(':');
+    setPendingSubTab(subTab || null);
+    if (tabId === 'catalog') setActiveTab('products');
+    else if (tabId === 'sales') setActiveTab('transactions');
+    else if (tabId === 'shifts') setActiveTab('shifts');
+    else if (tabId === 'kasir') setActiveTab('kasir');
+    else if (tabId === 'wallet') setActiveTab('wallet');
+    else if (tabId === 'vouchers') setActiveTab('vouchers');
+    else if (tabId === 'outlets') setActiveTab('branches');
+    else setActiveTab(tabId);
+  };
+
+  // Paket langganan tenant yang sedang login — sumber kebenaran UI (nama paket,
+  // kunci menu, dsb). Penegakan sesungguhnya tetap di backend.
+  const currentPlan = session?.tenant?.subscription_plan;
+  const currentPlanRank = planRank(currentPlan);
+  const currentPlanLabel = planLabel(currentPlan);
+  const currentBranchLimit = branchLimitFor(currentPlan);
+  const branchLimitTag = currentBranchLimit === null
+    ? `${branches.length > 0 ? branches.length : 1} Cabang (Tanpa batas)`
+    : `${branches.length > 0 ? branches.length : 1}/${currentBranchLimit} Cabang`;
+
+  // Tangkap sinyal upgrade-required dari mana saja (lihat SUBSCRIPTION-adjacent
+  // handling di lib/api.js) supaya modal upgrade konsisten muncul di seluruh app,
+  // tanpa perlu mengubah setiap catch block per halaman.
+  useEffect(() => {
+    const onPlanUpgradeRequired = (e) => setUpgradePrompt(e.detail);
+    window.addEventListener('plan-upgrade-required', onPlanUpgradeRequired);
+    return () => window.removeEventListener('plan-upgrade-required', onPlanUpgradeRequired);
+  }, []);
 
   // -------------------------------------------------------------
   // RENDERING LOGIN / REGISTER
@@ -426,24 +481,37 @@ export default function App() {
         </div>
       )}
 
+      {/* Upgrade Prompt Dialog — dipicu global via event 'plan-upgrade-required' (lib/api.js) */}
+      <Dialog open={!!upgradePrompt} onClose={() => setUpgradePrompt(null)} maxWidth="max-w-sm">
+        <DialogHeader onClose={() => setUpgradePrompt(null)}>
+          <DialogTitle className="flex items-center gap-2">
+            <Sparkles className="h-4.5 w-4.5 text-amber-500" />
+            Upgrade Paket
+          </DialogTitle>
+          <DialogDescription>
+            {upgradePrompt?.requiredPlan ? `Fitur ini butuh paket ${upgradePrompt.requiredPlan}.` : 'Fitur ini butuh paket lebih tinggi.'}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogContent>
+          <p className="text-sm text-[var(--color-slate-body)] leading-relaxed">{upgradePrompt?.message}</p>
+        </DialogContent>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setUpgradePrompt(null)}>Nanti dulu</Button>
+          <Button onClick={() => { setUpgradePrompt(null); handleSelectTab('settings:plan'); }}>Lihat Paket Langganan</Button>
+        </DialogFooter>
+      </Dialog>
+
       {/* Sidebar Desktop */}
       <Sidebar
         activeTab={activeTab}
-        onTabChange={(tabId) => {
-          if (tabId === 'catalog') setActiveTab('products');
-          else if (tabId === 'sales') setActiveTab('transactions');
-          else if (tabId === 'shifts') setActiveTab('shifts');
-          else if (tabId === 'kasir') setActiveTab('kasir');
-          else if (tabId === 'wallet') setActiveTab('wallet');
-          else if (tabId === 'vouchers') setActiveTab('vouchers');
-          else if (tabId === 'outlets') setActiveTab('branches');
-          else setActiveTab(tabId);
-        }}
+        onTabChange={handleSelectTab}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
         branchCount={branches.length > 0 ? branches.length : 2}
-        planName="Juragan Space (AI)"
-        onOpenUpgrade={() => setActiveTab('settings')}
+        planName={currentPlanLabel}
+        planTag={branchLimitTag}
+        planRank={currentPlanRank}
+        onOpenUpgrade={() => handleSelectTab('settings:plan')}
       />
 
       {/* Main Content Viewport */}
@@ -456,9 +524,12 @@ export default function App() {
           onOpenAddBranch={openAddBranch}
           session={session}
           onLogout={handleLogout}
-          onOpenSearch={() => setSearchOpen(true)}
-          onOpenUpgrade={() => setActiveTab('settings')}
+          onSelectTab={handleSelectTab}
+          onOpenUpgrade={() => handleSelectTab('settings:plan')}
           onToggleMobileNav={() => setMobileNavOpen(true)}
+          planName={currentPlanLabel}
+          planTag={branchLimitTag}
+          planRank={currentPlanRank}
         />
 
         {/* Main Content Area with SectionTabs */}
@@ -468,6 +539,7 @@ export default function App() {
             <SectionTabs
               currentTab={activeTab}
               onTabChange={(tabId) => setActiveTab(tabId)}
+              planRank={currentPlanRank}
             />
 
             {/* Dynamic Pages */}
@@ -496,14 +568,24 @@ export default function App() {
                 setActionError={setActionError}
                 setSuccessMessage={setSuccessMessage}
                 confirmAction={confirmAction}
+                initialSubTab={pendingSubTab}
               />
             )}
 
             {(activeTab === 'central-kitchen' || activeTab === 'warehouse') && (
-              <CentralKitchenPage
-                setSuccessMessage={setSuccessMessage}
-                setActionError={setActionError}
-              />
+              currentPlanRank < getRequiredPlanRank('central-kitchen') ? (
+                <UpgradeRequired
+                  featureLabel="Gudang Pusat (Central Kitchen)"
+                  requiredPlanLabel={planLabel('juragan')}
+                  onOpenUpgrade={() => handleSelectTab('settings:plan')}
+                />
+              ) : (
+                <CentralKitchenPage
+                  setSuccessMessage={setSuccessMessage}
+                  setActionError={setActionError}
+                  initialSubTab={pendingSubTab}
+                />
+              )
             )}
 
             {(activeTab === 'transactions' || activeTab === 'sales' || activeTab === 'sales-history') && (
@@ -518,7 +600,7 @@ export default function App() {
                 activeBranchId={activeBranchId}
                 branches={branches}
                 setSuccessMessage={setSuccessMessage}
-                onOpenUpgrade={() => setActiveTab('settings')}
+                onOpenUpgrade={() => handleSelectTab('settings:plan')}
               />
             )}
 
@@ -574,11 +656,19 @@ export default function App() {
             )}
 
             {(activeTab === 'kds') && (
-              <KdsPage
-                activeBranchId={activeBranchId}
-                branches={branches}
-                setSuccessMessage={setSuccessMessage}
-              />
+              currentPlanRank < getRequiredPlanRank('kds') ? (
+                <UpgradeRequired
+                  featureLabel="Kitchen Display System (KDS)"
+                  requiredPlanLabel={planLabel('juragan')}
+                  onOpenUpgrade={() => handleSelectTab('settings:plan')}
+                />
+              ) : (
+                <KdsPage
+                  activeBranchId={activeBranchId}
+                  branches={branches}
+                  setSuccessMessage={setSuccessMessage}
+                />
+              )
             )}
 
             {(activeTab === 'wallet' || activeTab === 'wallet-settle') && (
@@ -606,6 +696,9 @@ export default function App() {
                 onRefreshBranches={reloadBranches}
                 setActionError={setActionError}
                 setSuccessMessage={setSuccessMessage}
+                initialSubTab={pendingSubTab}
+                onPlanUpgraded={updateSessionPlan}
+                confirmAction={confirmAction}
               />
             )}
 

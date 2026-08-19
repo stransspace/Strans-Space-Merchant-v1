@@ -24,13 +24,16 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { formatRupiah, formatRupiahShort, cn } from '../lib/utils';
-import { 
-  THEME_PALETTES, 
-  applyThemePalette, 
-  applyThemeMode, 
-  getSavedPreferences 
+import {
+  THEME_PALETTES,
+  applyThemePalette,
+  applyThemeMode,
+  getSavedPreferences
 } from '../lib/theme';
 import { useLanguage } from '../lib/language-context';
+import { PLAN_CONFIG, planRank as getPlanRank, normalizePlan } from '../lib/plans';
+import { upgradeSubscription, getPublicConfig, checkoutSubscription, getSubscriptionCheckoutStatus } from '../lib/api';
+import { loadMidtransSnap } from '../lib/midtrans';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -38,18 +41,56 @@ import { Input } from '../components/ui/input';
 import { Switch } from '../components/ui/switch';
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogContent, DialogFooter } from '../components/ui/dialog';
 
-export default function SettingsPage({ 
-  activeBranchId, 
-  branches = [], 
-  session, 
-  onRefreshBranches, 
-  setActionError, 
-  setSuccessMessage 
+const SETTINGS_SUB_TABS = ['appearance', 'profile', 'security', 'notifications', 'plan'];
+
+// Salinan marketing (harga & highlight fitur) — selaras dgn halaman harga publik
+// strans-space.com/#harga. Terpisah dari PLAN_CONFIG (lib/plans.js) yang murni logika,
+// supaya tampilan bisa berubah tanpa menyentuh definisi limit/rank.
+const PLAN_DISPLAY = {
+  rintis: {
+    priceLabel: 'Rp0',
+    priceNote: 'Gratis selamanya',
+    highlights: ['1 Cabang & 1 Akun Kasir', 'Aplikasi Kasir POS (Web & Tablet)', 'Mode Offline', 'QRIS & Tunai'],
+  },
+  toko: {
+    priceLabel: 'Rp47.000',
+    priceNote: '/bulan',
+    highlights: ['1 Cabang & hingga 3 Staf Kasir', 'Unlimited Produk & Transaksi', 'Struk Digital WhatsApp', 'Diskon, Promo & Pajak'],
+  },
+  cabang: {
+    priceLabel: 'Rp143.000',
+    priceNote: '/bulan (flat 3 cabang)',
+    highlights: ['Hingga 3 Cabang (satu tagihan)', 'Resep & Potong Bahan Baku (HPP)', 'Laporan Laba Rugi Otomatis', '10 Akun Staf'],
+  },
+  juragan: {
+    priceLabel: 'Rp279.000',
+    priceNote: '/bulan',
+    highlights: ['15+ Cabang & Unlimited Staf', 'Strans AI Daily WhatsApp Digest', 'Kitchen Display System & QR Meja', 'Gudang Pusat (Central Kitchen)'],
+  },
+};
+
+export default function SettingsPage({
+  activeBranchId,
+  branches = [],
+  session,
+  onRefreshBranches,
+  setActionError,
+  setSuccessMessage,
+  onPlanUpgraded,
+  confirmAction,
+  initialSubTab
 }) {
   const { language, setLanguage, t } = useLanguage();
   const saved = getSavedPreferences();
 
   const [activeTab, setActiveTab] = useState('appearance'); // 'appearance' | 'profile' | 'security' | 'notifications' | 'plan'
+
+  // Deep-link dari GlobalSearch (Cmd+K), mis. "settings:security".
+  useEffect(() => {
+    if (initialSubTab && SETTINGS_SUB_TABS.includes(initialSubTab)) {
+      setActiveTab(initialSubTab);
+    }
+  }, [initialSubTab]);
 
   // Preferences states
   const [colorMode, setColorMode] = useState(saved.themeMode || 'light'); // 'light' | 'dark' | 'system'
@@ -75,6 +116,96 @@ export default function SettingsPage({
 
   // Billing modal
   const [billingModalOpen, setBillingModalOpen] = useState(false);
+
+  // Paket berlangganan aktif — sumber kebenaran dari sesi, bukan hardcode.
+  const currentPlanSlug = normalizePlan(session?.tenant?.subscription_plan);
+  const currentRank = getPlanRank(session?.tenant?.subscription_plan);
+  const planLabelMap = Object.fromEntries(PLAN_CONFIG.map((p) => [p.slug, p.label]));
+  const [upgradingPlan, setUpgradingPlan] = useState(null);
+
+  const handleDowngradePlan = async (plan) => {
+    const proceed = confirmAction
+      ? await confirmAction(
+          `Turunkan paket ke ${plan.label}? Fitur yang eksklusif di paket saat ini akan langsung terkunci, dan kuota cabang/staf akan mengikuti batas ${plan.label}.`,
+          { title: 'Downgrade Paket', confirmText: 'Ya, downgrade', danger: true }
+        )
+      : window.confirm(`Turunkan paket ke ${plan.label}?`);
+    if (!proceed) return;
+
+    setUpgradingPlan(plan.slug);
+    try {
+      const resp = await upgradeSubscription(plan.slug, 1);
+      onPlanUpgraded?.(resp?.data?.plan || plan.slug);
+      setSuccessMessage?.(resp?.message || `Paket berhasil diturunkan ke ${plan.label}.`);
+    } catch (err) {
+      setActionError?.(err.message || 'Gagal mengubah paket langganan.');
+    } finally {
+      setUpgradingPlan(null);
+    }
+  };
+
+  // Tunggu webhook Midtrans mengonfirmasi pembayaran (polling ringan sbg fallback kalau
+  // popup Snap ditutup/redirect sebelum webhook sempat masuk).
+  const pollCheckoutUntilPaid = async (reference, { attempts = 10, intervalMs = 2000 } = {}) => {
+    for (let i = 0; i < attempts; i++) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      try {
+        const resp = await getSubscriptionCheckoutStatus(reference);
+        if (resp?.status === 'paid') return resp;
+        if (['expired', 'cancelled'].includes(resp?.status)) return resp;
+      } catch { /* tetap coba lagi sampai attempts habis */ }
+    }
+    return null;
+  };
+
+  const handleUpgradePlan = async (plan) => {
+    setUpgradingPlan(plan.slug);
+    try {
+      const config = await getPublicConfig();
+      if (!config?.midtransClientKey) {
+        throw new Error('Pembayaran belum dikonfigurasi. Hubungi admin.');
+      }
+      await loadMidtransSnap(config.midtransClientKey, config.midtransIsProduction);
+
+      const checkout = await checkoutSubscription(plan.slug, 1);
+      const reference = checkout.paymentReference;
+
+      window.snap.pay(checkout.token, {
+        onSuccess: async () => {
+          setSuccessMessage?.('Pembayaran diterima. Mengaktifkan paket...');
+          const result = await pollCheckoutUntilPaid(reference);
+          if (result?.status === 'paid') {
+            onPlanUpgraded?.(result.plan);
+            setSuccessMessage?.(`Paket berhasil diupgrade ke ${planLabelMap[result.plan] || result.plan}.`);
+          } else {
+            setSuccessMessage?.('Pembayaran sedang diproses. Refresh halaman ini sebentar lagi untuk melihat paket aktif.');
+          }
+          setUpgradingPlan(null);
+        },
+        onPending: async () => {
+          setSuccessMessage?.('Menunggu konfirmasi pembayaran...');
+          const result = await pollCheckoutUntilPaid(reference, { attempts: 5 });
+          if (result?.status === 'paid') {
+            onPlanUpgraded?.(result.plan);
+            setSuccessMessage?.(`Paket berhasil diupgrade ke ${planLabelMap[result.plan] || result.plan}.`);
+          } else {
+            setActionError?.('Pembayaran masih tertunda. Paket akan aktif otomatis begitu pembayaran dikonfirmasi.');
+          }
+          setUpgradingPlan(null);
+        },
+        onError: () => {
+          setActionError?.('Pembayaran gagal diproses.');
+          setUpgradingPlan(null);
+        },
+        onClose: () => {
+          setUpgradingPlan(null);
+        },
+      });
+    } catch (err) {
+      setActionError?.(err.message || 'Gagal memulai pembayaran.');
+      setUpgradingPlan(null);
+    }
+  };
 
   // Initialize theme on mount
   useEffect(() => {
@@ -680,75 +811,102 @@ export default function SettingsPage({
                   <div>
                     <CardTitle className="text-sm font-bold text-[var(--color-ink)] flex items-center gap-2">
                       <Crown className="h-4 w-4 text-amber-500" />
-                      <span>{t('settings.plan.title', 'Paket Berlangganan Aktif')}</span>
+                      <span>{t('settings.plan.title', 'Paket Berlangganan')}</span>
                     </CardTitle>
                     <CardDescription className="text-xs text-[var(--color-slate-muted)] mt-0.5">
-                      {t('settings.plan.desc', 'Lisensi enterprise holding multi-cabang tanpa batasan.')}
+                      {t('settings.plan.desc', 'Pilih paket sesuai kebutuhan bisnis Anda. Upgrade langsung aktif untuk seluruh cabang.')}
                     </CardDescription>
                   </div>
-                  <Badge variant="brand" className="px-2.5 py-1 text-xs font-black">
-                    👑 JURAGAN SPACE (AI)
-                  </Badge>
-                </div>
-              </CardHeader>
-
-              <CardContent className="p-5 space-y-4">
-                <div className="space-y-2.5 text-xs">
-                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-hairline)]">
-                    <span className="text-[var(--color-slate-muted)]">
-                      {language === 'en' ? 'Active Branches / Outlets' : 'Jumlah Cabang / Outlet'}
-                    </span>
-                    <span className="font-bold text-[var(--color-ink)]">
-                      {language === 'en' ? '2 of Unlimited' : '2 dari Tanpa Batas (Unlimited)'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-hairline)]">
-                    <span className="text-[var(--color-slate-muted)]">
-                      {language === 'en' ? 'POS Terminals & KDS Displays' : 'Perangkat Mesin Kasir & KDS'}
-                    </span>
-                    <span className="font-bold text-[var(--color-ink)]">
-                      {language === 'en' ? 'Max Unlimited' : 'Maksimal Tanpa Batas'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-hairline)]">
-                    <span className="text-[var(--color-slate-muted)]">
-                      {language === 'en' ? 'Sales Ledger History' : 'Penyimpanan Riwayat Transaksi'}
-                    </span>
-                    <span className="font-bold text-[var(--color-ink)]">
-                      {language === 'en' ? 'Permanent Cloud Storage' : 'Cloud Storage Permanen'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-hairline)]">
-                    <span className="text-[var(--color-slate-muted)]">
-                      {language === 'en' ? 'Central Kitchen & Holding Warehouse' : 'Fitur Central Kitchen & Gudang Holding'}
-                    </span>
-                    <span className="font-bold text-emerald-600 font-bold">
-                      {language === 'en' ? '✓ Fully Active' : '✓ Aktif Sepenuhnya'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between py-1.5">
-                    <span className="text-[var(--color-slate-muted)]">
-                      {language === 'en' ? 'AI Anomaly & Anti-Fraud Guard' : 'Deteksi Anomali & Anti-Fraud AI'}
-                    </span>
-                    <span className="font-bold text-emerald-600 font-bold">
-                      {language === 'en' ? '✓ Fully Active' : '✓ Aktif Sepenuhnya'}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="pt-3 border-t border-[var(--color-hairline)] flex justify-end">
                   <Button
                     variant="outline"
                     onClick={() => setBillingModalOpen(true)}
-                    className="text-xs bg-[var(--card)] cursor-pointer gap-1.5 shadow-2xs"
+                    className="text-xs bg-[var(--card)] cursor-pointer gap-1.5 shadow-2xs shrink-0"
                   >
                     <Receipt className="h-3.5 w-3.5" />
-                    <span>{t('settings.plan.invoices', 'Rincian Tagihan & Faktur')}</span>
+                    <span className="hidden sm:inline">{t('settings.plan.invoices', 'Rincian Tagihan')}</span>
                   </Button>
+                </div>
+              </CardHeader>
+
+              <CardContent className="p-5">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  {PLAN_CONFIG.map((plan) => {
+                    const display = PLAN_DISPLAY[plan.slug];
+                    const isCurrent = plan.slug === currentPlanSlug;
+                    const isLower = plan.rank < currentRank;
+                    const isUpgrading = upgradingPlan === plan.slug;
+
+                    return (
+                      <div
+                        key={plan.slug}
+                        className={cn(
+                          'flex flex-col rounded-2xl border p-4 space-y-3',
+                          isCurrent
+                            ? 'border-[var(--color-brand-500)] bg-[var(--color-brand-50)] ring-1 ring-[var(--color-brand-200)]'
+                            : 'border-[var(--color-hairline)] bg-[var(--card)]'
+                        )}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-black text-[var(--color-ink)]">{plan.label}</span>
+                          {isCurrent && (
+                            <Badge variant="brand" className="text-[10px] px-1.5 py-0.5">
+                              {language === 'en' ? 'Active' : 'Aktif'}
+                            </Badge>
+                          )}
+                        </div>
+
+                        <div>
+                          <span className="text-lg font-black text-[var(--color-ink)]">{display.priceLabel}</span>
+                          <span className="ml-1 text-[11px] text-[var(--color-slate-muted)]">{display.priceNote}</span>
+                        </div>
+
+                        <ul className="flex-1 space-y-1.5 text-[11px] text-[var(--color-slate-body)]">
+                          {display.highlights.map((h) => (
+                            <li key={h} className="flex items-start gap-1.5">
+                              <Check className="h-3 w-3 shrink-0 mt-0.5 text-[var(--color-brand-600)]" />
+                              <span>{h}</span>
+                            </li>
+                          ))}
+                        </ul>
+
+                        {isCurrent ? (
+                          <Button variant="outline" disabled className="w-full text-xs">
+                            {language === 'en' ? 'Current Plan' : 'Paket Aktif'}
+                          </Button>
+                        ) : isLower && plan.rank === 0 ? (
+                          <Button
+                            variant="outline"
+                            disabled
+                            title={language === 'en' ? 'Cancelling to the free plan needs support' : 'Downgrade ke paket gratis perlu bantuan support'}
+                            className="w-full text-xs opacity-60"
+                          >
+                            {language === 'en' ? 'Contact support' : 'Hubungi support'}
+                          </Button>
+                        ) : isLower ? (
+                          <Button
+                            variant="outline"
+                            onClick={() => handleDowngradePlan(plan)}
+                            disabled={upgradingPlan !== null}
+                            className="w-full text-xs"
+                          >
+                            {isUpgrading
+                              ? (language === 'en' ? 'Processing...' : 'Memproses...')
+                              : (language === 'en' ? `Downgrade to ${plan.label}` : `Downgrade ke ${plan.label}`)}
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={() => handleUpgradePlan(plan)}
+                            disabled={upgradingPlan !== null}
+                            className="w-full text-xs"
+                          >
+                            {isUpgrading
+                              ? (language === 'en' ? 'Processing...' : 'Memproses...')
+                              : (language === 'en' ? `Upgrade to ${plan.label}` : `Upgrade ke ${plan.label}`)}
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -765,10 +923,10 @@ export default function SettingsPage({
             </div>
             <div>
               <DialogTitle>
-                {language === 'en' ? 'Billing & Juragan License' : 'Rincian Tagihan & Lisensi Juragan'}
+                {language === 'en' ? 'Billing & License' : 'Rincian Tagihan & Lisensi'}
               </DialogTitle>
               <DialogDescription>
-                {language === 'en' ? 'Payment invoices for Strans Space enterprise license.' : 'Riwayat pembayaran faktur paket enterprise Strans Space.'}
+                {language === 'en' ? 'Payment invoices for your Strans Space license.' : 'Riwayat pembayaran faktur paket Strans Space Anda.'}
               </DialogDescription>
             </div>
           </div>
@@ -778,10 +936,10 @@ export default function SettingsPage({
           <div className="rounded-2xl border border-[var(--color-hairline)] bg-[var(--color-snow)] p-4 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-[var(--color-ink)]">
-                {language === 'en' ? 'Juragan Space Plan (Annual AI)' : 'Paket Juragan Space (AI Tahunan)'}
+                {PLAN_CONFIG.find((p) => p.slug === currentPlanSlug)?.label}
               </span>
               <Badge variant="success" className="text-[10px]">
-                {language === 'en' ? 'Active until 16 Aug 2027' : 'Aktif sampai 16 Agu 2027'}
+                {language === 'en' ? 'Active' : 'Aktif'}
               </Badge>
             </div>
             <p className="text-[11px] text-[var(--color-slate-muted)]">

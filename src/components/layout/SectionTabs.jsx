@@ -1,9 +1,10 @@
 import React from 'react';
+import { Lock } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { NAV_GROUPS } from '../../lib/navigation';
 import { useLanguage } from '../../lib/language-context';
 
-export function SectionTabs({ currentTab, onTabChange }) {
+export function SectionTabs({ currentTab, onTabChange, planRank = Infinity }) {
   const { t } = useLanguage();
 
   // Find if currentTab belongs to any group item with children
@@ -46,6 +47,7 @@ export function SectionTabs({ currentTab, onTabChange }) {
       <ul className="inline-flex min-w-full gap-1 rounded-2xl border border-[var(--color-hairline)] bg-[var(--card)] p-1 shadow-2xs">
         {tabs.map((tab) => {
           const isActive = currentTab === tab.id || (parentItem.id === currentTab && tabs[0].id === tab.id);
+          const isLocked = typeof tab.requiresPlanRank === 'number' && planRank < tab.requiresPlanRank;
           const Icon = tab.icon;
           const label = getTranslatedSubTab(tab);
 
@@ -54,15 +56,19 @@ export function SectionTabs({ currentTab, onTabChange }) {
               <button
                 type="button"
                 onClick={() => onTabChange(tab.id)}
+                title={isLocked ? 'Butuh upgrade paket' : undefined}
                 className={cn(
                   'flex min-h-10 w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 text-xs font-bold transition-all cursor-pointer',
                   isActive
                     ? 'bg-[var(--color-brand-600)] text-white shadow-xs'
-                    : 'text-[var(--color-slate-body)] hover:bg-[var(--color-snow)] hover:text-[var(--color-ink)]'
+                    : isLocked
+                      ? 'text-[var(--color-slate-muted)] hover:bg-[var(--color-snow)]'
+                      : 'text-[var(--color-slate-body)] hover:bg-[var(--color-snow)] hover:text-[var(--color-ink)]'
                 )}
               >
-                <Icon className={cn('h-4 w-4 shrink-0', isActive ? 'text-white' : 'text-[var(--color-brand-600)]')} />
+                <Icon className={cn('h-4 w-4 shrink-0', isActive ? 'text-white' : isLocked ? 'text-[var(--color-slate-muted)]' : 'text-[var(--color-brand-600)]')} />
                 <span>{label}</span>
+                {isLocked && <Lock className="h-3 w-3 shrink-0 text-[var(--color-slate-muted)]" />}
               </button>
             </li>
           );

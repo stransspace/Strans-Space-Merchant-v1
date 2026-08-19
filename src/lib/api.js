@@ -79,6 +79,10 @@ export const getHeaders = (headers = {}) => {
 };
 
 const SUBSCRIPTION_BLOCK_CODES = ['SUBSCRIPTION_SUSPENDED', 'OUTLET_SUSPENDED', 'SUBSCRIPTION_EXPIRED'];
+// Batas fitur/kuota per tier (bukan akun diblokir) — beda perlakuan dari SUBSCRIPTION_BLOCK_CODES:
+// sesi tetap jalan, cukup tampilkan ajakan upgrade. Lihat PLAN_ACCESS_MAP, checkCashierLimit,
+// checkProductLimit, dan endpoint /branches di server/src/routes.js.
+const PLAN_UPGRADE_CODES = ['PLAN_UPGRADE_REQUIRED', 'BRANCH_LIMIT_REACHED', 'CASHIER_LIMIT_REACHED'];
 
 async function handleResponse(res) {
   if (!res.ok) {
@@ -96,6 +100,18 @@ async function handleResponse(res) {
           } catch { /* ignore */ }
           window.location.href = '/';
         }
+      }
+      // Fitur/kuota di luar paket saat ini: broadcast supaya App.jsx bisa menampilkan
+      // modal upgrade yang konsisten dari mana saja, tanpa mengubah tiap catch block
+      // pemanggil (yang tetap dapat error.message seperti biasa untuk fallback toast).
+      if (res.status === 403 && PLAN_UPGRADE_CODES.includes(parsed?.code) && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('plan-upgrade-required', {
+          detail: {
+            code: parsed.code,
+            message: parsed.message || parsed.error || 'Fitur ini membutuhkan paket lebih tinggi.',
+            requiredPlan: parsed.requiredPlan || parsed.data?.nextTier || null,
+          }
+        }));
       }
       const friendly = parsed?.error || parsed?.message;
       const err = new Error(friendly || text || `Request failed with status ${res.status}`);
@@ -357,6 +373,42 @@ export async function getProfitLossReport(scope, startDate, endDate) {
   }
   
   const res = await fetch(url, {
+    headers: getHeaders()
+  });
+  return handleResponse(res);
+}
+
+// Subscription API
+// Downgrade paket (GRATIS, instan) — hanya untuk pindah ke tier lebih rendah.
+export async function upgradeSubscription(plan, months = 1) {
+  const res = await fetch(`${API_URL}/api/subscription/upgrade`, {
+    method: 'POST',
+    headers: getHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ plan, months })
+  });
+  return handleResponse(res);
+}
+
+// Konfigurasi publik (tanpa auth) — mis. Midtrans Client Key utk memuat Snap.js.
+export async function getPublicConfig() {
+  const res = await fetch(`${API_URL}/api/config/public`);
+  return handleResponse(res);
+}
+
+// Mulai checkout upgrade/perpanjangan paket berbayar via Midtrans Snap.
+// Mengembalikan { token, paymentReference } — token dipakai window.snap.pay(token).
+export async function checkoutSubscription(plan, months = 1) {
+  const res = await fetch(`${API_URL}/api/subscription/checkout`, {
+    method: 'POST',
+    headers: getHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ plan, months })
+  });
+  return handleResponse(res);
+}
+
+// Polling status pembayaran checkout (jaga-jaga popup Snap ditutup sebelum webhook masuk).
+export async function getSubscriptionCheckoutStatus(reference) {
+  const res = await fetch(`${API_URL}/api/subscription/checkout/${encodeURIComponent(reference)}/status`, {
     headers: getHeaders()
   });
   return handleResponse(res);

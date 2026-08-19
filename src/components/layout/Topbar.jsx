@@ -17,12 +17,13 @@ export function Topbar({
   onOpenAddBranch,
   session,
   onLogout,
-  onOpenSearch,
+  onSelectTab,
   onOpenUpgrade,
-  onToggleMobileNav
+  onToggleMobileNav,
+  planName = 'Rintis Space',
+  planTag = '',
+  planRank
 }) {
-  const planName = 'Juragan Space (AI)';
-  const outletCount = branches.length > 0 ? branches.length : 2;
 
   return (
     <header className="sticky top-0 z-30 border-b border-[var(--color-hairline)] bg-[var(--sidebar)]/90 backdrop-blur-md shadow-2xs">
@@ -54,11 +55,11 @@ export function Topbar({
             className="hidden xl:flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50/80 px-3 py-1 text-[11px] font-bold text-violet-700 shadow-2xs hover:bg-violet-100 transition-colors cursor-pointer"
           >
             <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-            <span>👑 {planName} • {outletCount} Cabang (Tanpa batas)</span>
+            <span>👑 {planName}{planTag ? ` • ${planTag}` : ''}</span>
           </button>
 
           {/* Search Bar Pill */}
-          <GlobalSearch onOpen={onOpenSearch} />
+          <GlobalSearch onSelectTab={onSelectTab} planRank={planRank} />
 
           {/* Notification Bell */}
           <button

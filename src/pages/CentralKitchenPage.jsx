@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Boxes, 
   Factory, 
@@ -20,8 +20,17 @@ import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogContent, DialogFooter } from '../components/ui/dialog';
 
-export default function CentralKitchenPage({ setSuccessMessage, setActionError }) {
+const CENTRAL_KITCHEN_SUB_TABS = ['stocks', 'batches', 'requests'];
+
+export default function CentralKitchenPage({ setSuccessMessage, setActionError, initialSubTab }) {
   const [activeTab, setActiveTab] = useState('stocks'); // 'stocks' | 'batches' | 'requests'
+
+  // Deep-link dari GlobalSearch (Cmd+K), mis. "central-kitchen:requests".
+  useEffect(() => {
+    if (initialSubTab && CENTRAL_KITCHEN_SUB_TABS.includes(initialSubTab)) {
+      setActiveTab(initialSubTab);
+    }
+  }, [initialSubTab]);
 
   // Central Warehouse Stocks
   const [stocks, setStocks] = useState([

@@ -29,15 +29,16 @@ export function crossedLowStockThreshold(oldStock, newStock, stockMin) {
   return min > 0 && Number(oldStock) > min && Number(newStock) <= min
 }
 
-const isAdvancedPlan = (plan) => {
-  const normalized = String(plan || '').trim().toLowerCase()
-  return Boolean(normalized) && !['standard', 'basic', 'starter', 'free'].includes(normalized)
-}
+// Notifikasi Telegram otomatis = fitur Juragan Space (AI). Duplikasi minimal dari
+// PLAN_CONFIG di routes.js (tidak diimpor langsung krn routes.js sudah impor modul ini —
+// hindari circular import). Jaga tetap sinkron dgn slug 'juragan' & aliasnya di sana.
+const JURAGAN_PLAN_VALUES = ['juragan', 'premium', 'enterprise']
+const isJuraganPlan = (plan) => JURAGAN_PLAN_VALUES.includes(String(plan || '').trim().toLowerCase())
 
 export async function notifyLowStock({ companyId, branchId, materialName, unit, newStock, stockMin }) {
   try {
     const companyRows = await query('SELECT subscription_plan FROM companies WHERE id = ?', [companyId])
-    if (!isAdvancedPlan(companyRows[0]?.subscription_plan)) return
+    if (!isJuraganPlan(companyRows[0]?.subscription_plan)) return
 
     const [recipients, branchRows] = await Promise.all([
       query(

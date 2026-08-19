@@ -1,27 +1,38 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Search, 
-  Command, 
-  LayoutDashboard, 
-  ShoppingBag, 
-  Layers, 
-  Users, 
-  BarChart3, 
-  Coins, 
-  Ticket, 
-  Wallet, 
-  History, 
+import {
+  Search,
+  Command,
+  LayoutDashboard,
+  ShoppingBag,
+  Layers,
+  Users,
+  BarChart3,
+  Coins,
+  Ticket,
+  Wallet,
+  History,
   Settings,
   Plus,
   ArrowRight,
-  X
+  X,
+  Palette,
+  Store,
+  Shield,
+  Bell,
+  CreditCard,
+  Package,
+  Boxes,
+  Truck,
+  Lock
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useLanguage } from '../../lib/language-context';
+import { PLAN_RANK } from '../../lib/plans';
 
 export function GlobalSearch({
   onSelectTab,
   onOpenAddBranch,
+  planRank = Infinity,
   className = '',
 }) {
   const { t, language } = useLanguage();
@@ -32,7 +43,7 @@ export function GlobalSearch({
     { id: 'dashboard', title: t('nav.overview', 'Ringkasan'), category: t('nav.group.pantau', 'Navigasi'), icon: LayoutDashboard },
     { id: 'products', title: t('nav.products', 'Menu & Katalog Produk'), category: t('nav.group.kelola', 'Navigasi'), icon: ShoppingBag },
     { id: 'inventory', title: t('nav.inventory', 'Stok Bahan Baku'), category: t('nav.group.kelola', 'Navigasi'), icon: Layers },
-    { id: 'central-kitchen', title: t('nav.centralKitchen', 'Gudang Pusat'), category: t('nav.group.kelola', 'Navigasi'), icon: Layers },
+    { id: 'central-kitchen', title: t('nav.centralKitchen', 'Gudang Pusat'), category: t('nav.group.kelola', 'Navigasi'), icon: Layers, requiresPlanRank: PLAN_RANK.juragan },
     { id: 'staff', title: t('nav.staff', 'Staf & Hak Akses'), category: t('nav.group.kelola', 'Navigasi'), icon: Users },
     { id: 'reports', title: t('nav.reports', 'Laporan Keuangan'), category: t('nav.group.pantau', 'Navigasi'), icon: BarChart3 },
     { id: 'expenses', title: t('nav.expenses', 'Pengeluaran Kas'), category: t('nav.group.pantau', 'Navigasi'), icon: Coins },
@@ -40,6 +51,22 @@ export function GlobalSearch({
     { id: 'wallet', title: t('nav.wallet', 'Dompet & Saldo Digital'), category: t('nav.group.kelola', 'Navigasi'), icon: Wallet },
     { id: 'outlets', title: t('nav.outlets', 'Cabang & Outlet'), category: t('nav.group.kelola', 'Navigasi'), icon: Users },
     { id: 'settings', title: t('nav.settings', 'Pengaturan Usaha'), category: t('nav.group.lainnya', 'Navigasi'), icon: Settings },
+
+    // Sub-halaman Pengaturan
+    { id: 'settings:appearance', title: t('settings.tab.appearance', 'Tampilan & Bahasa'), category: t('nav.settings', 'Pengaturan Usaha'), icon: Palette },
+    { id: 'settings:profile', title: t('settings.tab.profile', 'Profil Usaha'), category: t('nav.settings', 'Pengaturan Usaha'), icon: Store },
+    { id: 'settings:security', title: t('settings.tab.security', 'Keamanan & Otorisasi'), category: t('nav.settings', 'Pengaturan Usaha'), icon: Shield },
+    { id: 'settings:notifications', title: t('settings.tab.notifications', 'Notifikasi & Rekap AI'), category: t('nav.settings', 'Pengaturan Usaha'), icon: Bell },
+    { id: 'settings:plan', title: t('settings.tab.plan', 'Paket Berlangganan'), category: t('nav.settings', 'Pengaturan Usaha'), icon: CreditCard },
+
+    // Sub-halaman Stok Bahan Baku
+    { id: 'inventory:stock', title: t('inventory.tab.stock', 'Stok Cabang'), category: t('nav.inventory', 'Stok Bahan Baku'), icon: Layers },
+    { id: 'inventory:materials', title: t('inventory.tab.materials', 'Daftar Bahan Baku'), category: t('nav.inventory', 'Stok Bahan Baku'), icon: Package },
+
+    // Sub-halaman Gudang Pusat
+    { id: 'central-kitchen:stocks', title: t('centralKitchen.tab.stocks', 'Stok Gudang Pusat'), category: t('nav.centralKitchen', 'Gudang Pusat'), icon: Boxes, requiresPlanRank: PLAN_RANK.juragan },
+    { id: 'central-kitchen:batches', title: t('centralKitchen.tab.batches', 'Batch Produksi'), category: t('nav.centralKitchen', 'Gudang Pusat'), icon: Package, requiresPlanRank: PLAN_RANK.juragan },
+    { id: 'central-kitchen:requests', title: t('centralKitchen.tab.requests', 'Permintaan Cabang'), category: t('nav.centralKitchen', 'Gudang Pusat'), icon: Truck, requiresPlanRank: PLAN_RANK.juragan },
   ];
 
   useEffect(() => {
@@ -117,6 +144,8 @@ export function GlobalSearch({
               ) : (
                 results.map((item) => {
                   const Icon = item.icon;
+                  const isSubPage = item.id.includes(':');
+                  const isLocked = typeof item.requiresPlanRank === 'number' && planRank < item.requiresPlanRank;
                   return (
                     <button
                       key={item.id}
@@ -128,10 +157,19 @@ export function GlobalSearch({
                       className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-xs text-[var(--color-slate-body)] hover:bg-[var(--color-brand-50)] hover:text-[var(--color-ink)] transition-colors cursor-pointer"
                     >
                       <div className="flex items-center gap-2.5">
-                        <Icon className="h-4 w-4 text-[var(--color-brand-600)]" />
-                        <span className="font-semibold">{item.title}</span>
+                        <Icon className={cn('h-4 w-4', isLocked ? 'text-[var(--color-slate-muted)]' : 'text-[var(--color-brand-600)]')} />
+                        <div className="flex flex-col items-start">
+                          <span className="font-semibold">{item.title}</span>
+                          {isSubPage && (
+                            <span className="text-[10px] text-[var(--color-slate-muted)]">{item.category}</span>
+                          )}
+                        </div>
                       </div>
-                      <ArrowRight className="h-3 w-3 text-[var(--color-slate-muted)]" />
+                      {isLocked ? (
+                        <Lock className="h-3 w-3 text-[var(--color-slate-muted)]" />
+                      ) : (
+                        <ArrowRight className="h-3 w-3 text-[var(--color-slate-muted)]" />
+                      )}
                     </button>
                   );
                 })
